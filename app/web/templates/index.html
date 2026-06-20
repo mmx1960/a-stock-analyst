@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A 股分析系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.35.0/dist/apexcharts.min.js"></script>
+    <style>
+        :root { --primary: #d32f2f; --success: #2e7d32; --bg-dark: #1a1a2e; }
+        body { background: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        .navbar { background: var(--bg-dark) !important; }
+        .navbar-brand { color: #fff !important; font-weight: 700; }
+        .up { color: var(--success); }
+        .down { color: var(--primary); }
+        .flat { color: #666; }
+        .score-badge { font-size: 2rem; font-weight: 800; }
+        .grade-A { color: #2e7d32; } .grade-B { color: #1565c0; }
+        .grade-C { color: #f57c00; } .grade-D { color: #d32f2f; }
+        .grade-E { color: #6a1b9a; }
+        .card { border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; }
+        .card-header { background: #fff; border-bottom: 2px solid #eee; font-weight: 600; }
+        .search-box { max-width: 400px; margin: 2rem auto; }
+        #search-results { max-height: 300px; overflow-y: auto; }
+        .stock-item { cursor: pointer; padding: 8px 12px; border-bottom: 1px solid #eee; }
+        .stock-item:hover { background: #f0f0f0; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#"><i class="fas fa-chart-line"></i> A 股分析系统</a>
+            <span class="text-white-50" id="market-status">加载中...</span>
+        </div>
+    </nav>
+
+    <div class="container py-4">
+        <!-- 搜索框 -->
+        <div class="search-box">
+            <div class="input-group">
+                <input type="text" class="form-control" id="stock-search" placeholder="输入股票代码或名称（如 600519 或 贵州茅台）" autofocus>
+                <button class="btn btn-primary" onclick="searchStock()"><i class="fas fa-search"></i> 分析</button>
+            </div>
+            <div id="search-results" class="bg-white rounded-bottom shadow"></div>
+        </div>
+
+        <!-- 市场概览 -->
+        <div class="row mb-4" id="market-overview">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-globe-asia"></i> 市场指数</div>
+                    <div class="card-body" id="indices-container">
+                        <div class="text-center text-muted">加载中...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 板块排行 -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header text-success"><i class="fas fa-arrow-up"></i> 领涨板块 TOP 10</div>
+                    <div class="card-body p-0" id="top-sectors">加载中...</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header text-danger"><i class="fas fa-arrow-down"></i> 领跌板块 TOP 10</div>
+                    <div class="card-body p-0" id="bottom-sectors">加载中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    const apiBase = '';
+
+    // 页面加载
+    document.addEventListener('DOMContentLoaded', () => {
+        loadMarketOverview();
+        loadSectors();
+
+        document.getElementById('stock-search').addEventListener('keyup', (e) => {
+            if (e.key === 'Enter') searchStock();
+        });
+    });
+
+    function loadMarketOverview() {
+        fetch(`${apiBase}/api/market`)
+            .then(r => r.json())
+            .then(data => {
+                const c = document.getElementById('indices-container');
+                const indices = data.indices || {};
+                let html = '<div class="row">';
+                const names = {'000001':'上证指数','399001':'深证成指','399006':'创业板指','000688':'科创50','000300':'沪深300','000905':'中证500'};
+                for (const [code, info] of Object.entries(indices)) {
+                    const cls = info.change_pct >= 0 ? 'up' : 'down';
+                    const icon = info.change_pct >= 0 ? '▲' : '▼';
+                    html += `<div class="col-md-4 col-sm-6 mb-2">
+                        <div class="text-center p-2 border rounded">
+                            <div class="fw-bold">${names[code] || code}</div>
+                            <div class="fs-5">${info.price}</div>
+                            <div class="${cls}">${icon} ${info.change_pct.toFixed(2)}%</div>
+                        </div>
+                    </div>`;
+                }
+                html += '</div>';
+                c.innerHTML = html;
+                document.getElementById('market-status').textContent = `数据更新: ${data.updated_at}`;
+            })
+            .catch(() => {
+                document.getElementById('indices-container').innerHTML = '<div class="text-center text-muted">市场数据加载失败</div>';
+            });
+    }
+
+    function loadSectors() {
+        fetch(`${apiBase}/api/sectors`)
+            .then(r => r.json())
+            .then(data => {
+                const top = data.slice(0, 10);
+                const bottom = data.slice(-10).reverse();
+                renderSectorList('top-sectors', top, true);
+                renderSectorList('bottom-sectors', bottom, false);
+            })
+            .catch(() => {
+                document.getElementById('top-sectors').innerHTML = '<div class="p-3 text-muted">板块数据加载失败</div>';
+                document.getElementById('bottom-sectors').innerHTML = '<div class="p-3 text-muted">板块数据加载失败</div>';
+            });
+    }
+
+    function renderSectorList(id, sectors, isUp) {
+        const c = document.getElementById(id);
+        const color = isUp ? 'success' : 'danger';
+        let html = '<table class="table table-sm mb-0"><thead><tr><th>板块</th><th class="text-end">涨跌幅</th><th class="text-end">成交额</th></tr></thead><tbody>';
+        for (const s of sectors) {
+            const cls = s.change_pct >= 0 ? 'up' : 'down';
+            html += `<tr><td>${s.name}</td><td class="text-end ${cls}">${s.change_pct.toFixed(2)}%</td><td class="text-end">${(s.turnover/1e8).toFixed(1)}亿</td></tr>`;
+        }
+        html += '</tbody></table>';
+        c.innerHTML = html;
+    }
+
+    function searchStock() {
+        const input = document.getElementById('stock-search').value.trim();
+        if (!input) return;
+        // 如果是代码直接跳转，如果是名称先搜索
+        if (/^\d{6}$/.test(input)) {
+            window.location.href = `/stock/${input}`;
+        }
+    }
+    </script>
+</body>
+</html>

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>缠论 Top 10 自选股 - A股分析系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #0f1923; color: #e0e6ed; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        .card { background: #1a2733; border: 1px solid #2d3f50; border-radius: 12px; }
+        .header-gradient { background: linear-gradient(135deg, #0f1923 0%, #1a2733 100%); }
+        .rank-badge { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; }
+        .rank-1 { background: linear-gradient(135deg, #ffd700, #ffaa00); color: #000; }
+        .rank-2 { background: linear-gradient(135deg, #c0c0c0, #a0a0a0); color: #000; }
+        .rank-3 { background: linear-gradient(135deg, #cd7f32, #b06820); color: #fff; }
+        .rank-other { background: #2d3f50; color: #e0e6ed; }
+        .positive { color: #00e676; }
+        .negative { color: #ff5252; }
+        .stock-row { transition: all 0.2s; cursor: pointer; }
+        .stock-row:hover { background: #243447 !important; }
+        .win-rate-bar { height: 6px; border-radius: 3px; background: #2d3f50; overflow: hidden; }
+        .win-rate-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #00e676, #00bcd4); }
+        .tag { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+        .tag-hfq { background: #2d3f50; color: #90a4ae; }
+        .tag-czsc { background: #1b5e20; color: #a5d6a7; }
+        .stat-card { text-align: center; padding: 1.5rem; }
+        .stat-value { font-size: 2rem; font-weight: bold; }
+        .stat-label { font-size: 0.85rem; color: #90a4ae; margin-top: 0.25rem; }
+        a { color: #64b5f6; text-decoration: none; }
+        a:hover { color: #90caf9; }
+    </style>
+</head>
+<body>
+    <div class="container py-4">
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h4 class="mb-1">🏆 缠论共振策略 Top 10 自选股</h4>
+                <small class="text-muted">后复权数据 · 2000-2026 全量回测 · 缠论多级别共振</small>
+            </div>
+            <div>
+                <a href="/" class="btn btn-outline-secondary btn-sm me-2">← 返回首页</a>
+                <span class="tag tag-hfq">hfq</span>
+                <span class="tag tag-czsc">CZSC</span>
+            </div>
+        </div>
+
+        <!-- Summary Stats -->
+        <div class="row g-3 mb-4" id="stats"></div>
+
+        <!-- Watchlist Table -->
+        <div class="card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-dark table-hover mb-0 align-middle">
+                        <thead>
+                            <tr class="border-bottom border-secondary">
+                                <th class="ps-4">排名</th>
+                                <th>代码 / 名称</th>
+                                <th class="text-end">现价</th>
+                                <th class="text-end">涨跌幅</th>
+                                <th class="text-end">买点总数</th>
+                                <th class="text-end">平均涨幅</th>
+                                <th class="text-end">最大涨幅</th>
+                                <th class="text-end">胜率</th>
+                                <th class="pe-4">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="watchlist-body">
+                            <tr><td colspan="9" class="text-center py-5">
+                                <div class="spinner-border text-info" role="status"></div>
+                                <div class="mt-2 text-muted">加载中...</div>
+                            </td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-3">
+            <small class="text-muted">数据来源: AKShare 东方财富 · 复权方式: 后复权(hfq) · 分析引擎: CZSC 缠论</small>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function formatNum(n, decimals = 1) {
+            if (n === null || n === undefined || isNaN(n)) return '-';
+            return Number(n).toFixed(decimals);
+        }
+        function formatPct(n) {
+            if (n === null || n === undefined || isNaN(n)) return '-';
+            return Number(n).toFixed(1) + '%';
+        }
+        function formatCap(n) {
+            if (!n || n <= 0) return '-';
+            if (n >= 1e12) return (n / 1e12).toFixed(1) + '万亿';
+            if (n >= 1e8) return (n / 1e8).toFixed(1) + '亿';
+            if (n >= 1e4) return (n / 1e4).toFixed(1) + '万';
+            return n.toFixed(0);
+        }
+
+        fetch('/api/watchlist')
+            .then(r => r.json())
+            .then(data => {
+                // Stats
+                const totalBP = data.reduce((s, d) => s + d.buy_points_count, 0);
+                const avgWin = data.reduce((s, d) => s + d.win_rate, 0) / data.length;
+                const maxRet = Math.max(...data.map(d => d.max_return));
+                document.getElementById('stats').innerHTML = `
+                    <div class="col-6 col-md-3"><div class="card stat-card"><div class="stat-value text-info">${data.length}</div><div class="stat-label">精选标的</div></div></div>
+                    <div class="col-6 col-md-3"><div class="card stat-card"><div class="stat-value text-warning">${totalBP}</div><div class="stat-label">历史买点总数</div></div></div>
+                    <div class="col-6 col-md-3"><div class="card stat-card"><div class="stat-value positive">${formatPct(avgWin)}</div><div class="stat-label">平均胜率</div></div></div>
+                    <div class="col-6 col-md-3"><div class="card stat-card"><div class="stat-value positive">${formatPct(maxRet)}</div><div class="stat-label">最高单笔收益</div></div></div>
+                `;
+
+                // Table
+                const tbody = document.getElementById('watchlist-body');
+                tbody.innerHTML = data.map(s => {
+                    const rankClass = s.rank <= 3 ? `rank-${s.rank}` : 'rank-other';
+                    const pctClass = (s.change_pct || 0) >= 0 ? 'positive' : 'negative';
+                    const arrow = (s.change_pct || 0) >= 0 ? '▲' : '▼';
+                    return `
+                        <tr class="stock-row" onclick="location.href='/stock/${s.code}'">
+                            <td class="ps-4"><span class="rank-badge ${rankClass}">${s.rank}</span></td>
+                            <td>
+                                <div class="fw-bold">${s.code}</div>
+                                <small class="text-muted">${s.name}</small>
+                            </td>
+                            <td class="text-end fw-bold">${s.current_price ? s.current_price.toFixed(2) : '-'}</td>
+                            <td class="text-end ${pctClass}">${s.change_pct !== undefined ? arrow + ' ' + formatPct(s.change_pct) : '-'}</td>
+                            <td class="text-end">${s.buy_points_count}</td>
+                            <td class="text-end positive">${formatPct(s.avg_return)}</td>
+                            <td class="text-end fw-bold positive">${formatPct(s.max_return)}</td>
+                            <td class="text-end">
+                                <div class="d-flex align-items-center justify-content-end gap-2">
+                                    <span class="positive">${formatPct(s.win_rate)}</span>
+                                    <div class="win-rate-bar" style="width:50px"><div class="win-rate-fill" style="width:${s.win_rate}%"></div></div>
+                                </div>
+                            </td>
+                            <td class="pe-4"><a href="/stock/${s.code}" class="btn btn-sm btn-outline-info">详情</a></td>
+                        </tr>
+                    `;
+                }).join('');
+            })
+            .catch(e => {
+                document.getElementById('watchlist-body').innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">加载失败: ${e.message}</td></tr>`;
+            });
+    </script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local config / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Local data stores
+*.duckdb
+*.duckdb.wal
+*.duckdb.tmp
+*.db
+*.sqlite
+*.sqlite3
+data/
+app/data/
+
+# Generated selections and backtest outputs
+current_*_selections.json
+current_attack_third_buy.json
+backtest/results_*/
+backtest/screening_results/
+backtest/cache/
+
+# Temporary scripts / scratch files
+tmp_*.py
+*.tmp
+.DS_Store
+
+# Logs
+*.log
+logs/
