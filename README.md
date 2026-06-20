@@ -1,161 +1,198 @@
 # A 股分析系统 (A-Share Analyst)
 
-基于 AKShare + Flask 的 A 股多维度分析系统，提供技术面、基本面、资金面综合分析，并沉淀多版本 A 股选股策略与回测脚本。
+基于 **通达信 mootdx + 腾讯财经 + DuckDB + AKShare 低频 + 开盘啦/同花顺热点层** 的 A 股多维度分析与选股系统。项目目标不是依赖单一爬虫源，而是把行情、估值、低频资料、热点情绪拆层治理，形成稳定可回测、可缓存、可扩展的数据底座。
+
+## 核心数据源结论
+
+实测后数据源取舍：
+
+- ❌ 淘汰：`Tushare`、`Ashare`，不作为主链路。
+- ✅ 行情主源：通达信 `mootdx`，负责实时行情和 K 线。
+- ✅ 估值补字段：腾讯财经 API，负责 PE/PB、市值、换手率、量比。
+- ✅ 低频补充：AKShare，仅用于股票列表 fallback、公告、研报、F10、财务摘要等低频数据。
+- ✅ 热点情绪：同花顺热点/开盘啦，当前已落地开盘啦 App API 入库。
+- ✅ 语义搜索：i问财，作为后续自然语言查询和事件驱动搜索扩展。
+
+完整方案见：`docs/DATA_SOURCE_ARCHITECTURE.md`。
 
 ## 功能特性
 
-- 📊 **实时行情**：A 股实时报价、指数行情、板块排行
-- 📈 **技术分析**：MA/EMA/MACD/RSI/KDJ/BOLL/ATR + 支撑压力位
-- 🏢 **基本面**：PE/PB/ROE/毛利率/净利率 + 估值评级
-- 💰 **资金流向**：主力/超大单/大单/中单/散户资金流向
-- 🎯 **综合评分**：100 分制加权评分（技术 40% + 基本面 35% + 资金面 25%）
-- 🤖 **操作建议**：自动生成 BUY/HOLD/SELL 建议 + 置信度
-- 📋 **板块监控**：行业板块涨跌排行、成交额统计
-- 🧠 **策略体系**：v1 / v2 / v3 / v3.1 / v4 选股策略与回测脚本
+- 📊 **行情/K线**：通达信主源 + DuckDB 本地缓存，支持日线和分钟线。
+- 🧾 **估值补字段**：腾讯财经补充 PE/PB、市值、换手率、量比等。
+- 🔥 **热点情绪**：开盘啦涨停原因、热点板块、涨停个股、市场情绪入库。
+- 📈 **技术分析**：MA/EMA/MACD/RSI/KDJ/BOLL/ATR + 支撑压力位。
+- 🏢 **基本面**：PE/PB/ROE/毛利率/净利率 + 估值评级。
+- 🧠 **策略体系**：v1 / v2 / v3 / v3.1 / v3.2 / attack-third-buy 多版本策略。
+- 💾 **本地缓存**：DuckDB 持久化股票池、K 线、开盘啦热点/情绪数据。
 
-## 技术架构
+## 当前项目结构
 
 ```text
 a-stock-analyst/
-├── SOUL.md                      # Agent 人格定义
-├── run.py                       # 启动入口
-├── requirements.txt             # 依赖
-├── docs/
-│   └── STRATEGY_V3_1.md         # 当前主实时选股策略文档
+├── SOUL.md
+├── run.py
+├── requirements.txt
+├── .env.example
 ├── app/
 │   ├── core/
-│   │   ├── config.py            # 配置
-│   │   └── data_provider.py     # 数据层（AKShare 封装）
-│   ├── analysis/
-│   │   ├── technical.py         # 技术分析
-│   │   ├── fundamental.py       # 基本面分析
-│   │   ├── capital_flow.py      # 资金流分析
-│   │   ├── composite.py         # 综合评分
-│   │   └── czsc_analyzer.py     # CZSC 缠论分析
-│   └── web/
-│       ├── templates/           # 页面模板
-│       └── static/              # 静态资源
+│   │   ├── config.py                    # 环境变量与数据源配置
+│   │   ├── data_provider.py             # Web/策略统一门面
+│   │   ├── providers/
+│   │   │   ├── base.py                  # provider 抽象
+│   │   │   ├── composite_provider.py    # 多源路由：DuckDB/mootdx/tencent/akshare
+│   │   │   ├── mootdx_provider.py       # 通达信行情/K线主源
+│   │   │   ├── tencent_provider.py      # 腾讯财经估值补字段
+│   │   │   ├── akshare_provider.py      # AKShare 低频 fallback
+│   │   │   ├── bigamap_provider.py      # BigAmap 公开热点补充
+│   │   │   └── kaipanla_provider.py     # 开盘啦热点/情绪入库
+│   │   └── storage/
+│   │       └── duckdb_store.py          # DuckDB 表与 upsert/query
+│   ├── analysis/                        # 技术/基本面/资金/综合/CZSC 分析
+│   └── web/templates/                   # Flask 页面模板
+├── scripts/
+│   ├── sync_stock_list.py               # 股票池同步
+│   ├── sync_history_kline.py            # 日线批量补库
+│   └── sync_kaipanla_data.py            # 开盘啦热点/情绪同步
 ├── backtest/
-│   ├── engine/
-│   │   ├── backtest_engine.py   # 回测引擎
-│   │   └── analyze_stock.py     # 子进程单股分析
-│   ├── strategies/
-│   │   ├── strategy_v1_triple_resonance.py     # v1 三级别共振
-│   │   ├── strategy_v2_price_action.py         # v2 价格形态快筛
-│   │   ├── strategy_v3_standard_buy_point.py   # v3 标准缠论买点
-│   │   ├── strategy_v3_1_realtime.py           # v3.1 主实时策略
-│   │   ├── strategy_v3_1_backtest.py           # v3.1 回测（复用主策略核心函数）
-│   │   ├── strategy_v3_2_ranked.py             # v3.2 排序版策略（信号分级 + 打分）
-│   │   └── strategy_v4_relaxed_fallback.py     # v4 放宽容错版
-│   ├── runners/
-│   │   ├── run_select_v3_1_top500.py           # 运行 v3.1 实时选股
-│   │   ├── run_backtest_v3.py                  # 运行 v3 标准回测
-│   │   ├── run_backtest_v3_1.py                # 旧版 v3.1 回测入口（全市场优先）
-│   │   ├── run_backtest_v3_1_fallback.py       # 旧版 v3.1 回测入口（固定兜底样本）
-│   │   ├── run_v3_1_backtest.py                # 正式 v3.1 回测入口（单票/股票池/自动 fallback）
-│   │   ├── run_v3_2_backtest.py                # 正式 v3.2 回测入口（排序/优先级输出）
-│   ├── archive/                                # 历史实验脚本归档
-│   └── results_v6/                             # 回测结果
-└── current_v3_selections.json                  # 最新实时选股结果
+│   ├── strategies/                      # 策略本体
+│   ├── runners/                         # 可执行入口
+│   ├── engine/                          # 回测引擎
+│   └── archive/                         # 历史实验脚本
+├── docs/
+│   ├── DATA_SOURCE_ARCHITECTURE.md      # 数据源总方案
+│   ├── KAIPANLA_DATA_SOURCE.md          # 开盘啦接入细节
+│   ├── STRATEGY_ATTACK_THIRD_BUY.md
+│   ├── STRATEGY_V3_1.md
+│   └── STRATEGY_V3_2.md
+└── data/ashare.duckdb                   # 本地缓存，不提交 Git
 ```
-
-## 策略体系
-
-- **v1：三级别共振策略**
-  - 文件：`backtest/strategies/strategy_v1_triple_resonance.py`
-- **v2：价格形态快筛策略**
-  - 文件：`backtest/strategies/strategy_v2_price_action.py`
-- **v3：标准缠论买点策略（主回测基线）**
-  - 文件：`backtest/strategies/strategy_v3_standard_buy_point.py`
-- **v3.1：当前主实时选股策略**
-  - 文档：`docs/STRATEGY_V3_1.md`
-  - 策略：`backtest/strategies/strategy_v3_1_realtime.py`
-  - 核心函数：`analyze_v3_1_signal(...)`
-  - 回测：`backtest/strategies/strategy_v3_1_backtest.py`
-  - 实时入口：`backtest/runners/run_select_v3_1_top500.py`
-  - 正式回测入口：`backtest/runners/run_v3_1_backtest.py`
-  - 兼容旧入口：`backtest/runners/run_backtest_v3_1.py`
-  - 固定样本入口：`backtest/runners/run_backtest_v3_1_fallback.py`
-- **v3.2：排序版策略（推荐作为下一阶段主策略）**
-  - 策略：`backtest/strategies/strategy_v3_2_ranked.py`
-  - 核心函数：`analyze_v3_2_signal(...)`
-  - 回测入口：`backtest/runners/run_v3_2_backtest.py`
-  - 主要增强：信号优先级（P1/P2/P3）+ `signal_score` 排序输出
-- **v4：放宽规则的容错补充策略**
-  - 文件：`backtest/strategies/strategy_v4_relaxed_fallback.py`
 
 ## 快速开始
 
 ### 1. 安装依赖
 
 ```bash
-cd ~/.Hermes/workspace/a-stock-analyst
-pip install -r requirements.txt
+cd /Users/zhangzc/.Hermes/workspace/a-stock-analyst
+uv pip install -r requirements.txt
 ```
 
-### 2. 启动 Web 服务
+### 2. 配置环境
 
 ```bash
-python run.py
+cp .env.example .env
 ```
 
-### 3. 运行主实时选股策略（v3.1）
+关键配置：
+
+```env
+TDX_HOST=127.0.0.1
+TDX_PORT=7709
+TENCENT_API=https://qt.gtimg.cn
+AKSHARE_RATE_LIMIT=5
+HOTSPOT_SOURCE=kaipanla
+DUCKDB_PATH=data/ashare.duckdb
+```
+
+### 3. 初始化数据
+
+同步股票池：
 
 ```bash
-python -m backtest.runners.run_select_v3_1_top500
+PYTHONPATH=. uv run python scripts/sync_stock_list.py
 ```
 
-### 4. 运行 v3.1 回测
+补日线缓存：
 
 ```bash
-# 单票回测
-python backtest/runners/run_v3_1_backtest.py --codes 600449 --start-year 2019 --hold-weeks 10
-
-# 本地股票池回测
-python backtest/runners/run_v3_1_backtest.py --stock-file backtest/stocks/fallback_stocks_v3_1.json --sample-size 20 --start-year 2019
-
-# 自动 fallback 回测（优先实时股票列表，失败时回退到默认股票池）
-python backtest/runners/run_v3_1_backtest.py --sample-size 100 --start-year 2020
+PYTHONPATH=. uv run python scripts/sync_history_kline.py --from-db-stock-list --limit 100 --start-date 20200101 --skip-if-exists
 ```
 
-### 5. 运行 v3.2 排序版回测
+同步开盘啦热点/情绪：
 
 ```bash
-# 单票/多票排序回测
-python backtest/runners/run_v3_2_backtest.py --codes 600449 601127 --stock-file backtest/stocks/fallback_stocks_v3_1.json --start-year 2019 --hold-weeks 10
-
-# 股票池排序回测
-python backtest/runners/run_v3_2_backtest.py --stock-file backtest/stocks/fallback_stocks_v3_1.json --sample-size 18 --start-year 2019
+PYTHONPATH=. uv run python scripts/sync_kaipanla_data.py --recent-days 1
 ```
 
-### 6. 运行 v3 标准回测
+### 4. 启动 Web 服务
 
 ```bash
-python -m backtest.runners.run_backtest_v3
+DEBUG=false PYTHONPATH=. uv run python run.py
 ```
 
-### 7. 访问
+访问：
 
-- 首页：http://localhost:8888
-- 个股分析：http://localhost:8888/stock/600519
+- 首页：`http://localhost:8888`
+- 个股分析：`http://localhost:8888/stock/600519`
+
+## 策略入口
+
+### v3.1 主实时策略
+
+```bash
+PYTHONPATH=. uv run python -m backtest.runners.run_select_v3_1_top500
+```
+
+### attack-third-buy：热点 + 30 分钟三买
+
+使用本地开盘啦热点池：
+
+```bash
+PYTHONPATH=. uv run python backtest/runners/run_select_attack_third_buy.py \
+  --pool-mode kaipanla \
+  --structure-period 30 \
+  --max-stocks 80
+```
+
+综合热点池（开盘啦 + BigAmap）：
+
+```bash
+PYTHONPATH=. uv run python backtest/runners/run_select_attack_third_buy.py \
+  --pool-mode combined \
+  --structure-period 30 \
+  --max-stocks 100
+```
+
+### v3.1 回测
+
+```bash
+PYTHONPATH=. uv run python backtest/runners/run_v3_1_backtest.py --codes 600449 --start-year 2019 --hold-weeks 10
+PYTHONPATH=. uv run python backtest/runners/run_v3_1_backtest.py --stock-file backtest/stocks/fallback_stocks_v3_1.json --sample-size 20 --start-year 2019
+```
+
+### v3.2 排序版回测
+
+```bash
+PYTHONPATH=. uv run python backtest/runners/run_v3_2_backtest.py --codes 600449 601127 --stock-file backtest/stocks/fallback_stocks_v3_1.json --start-year 2019 --hold-weeks 10
+```
 
 ## API 接口
 
 - `GET /api/quote/{code}`：个股实时行情
-- `GET /api/kline/{code}`：K 线数据
+- `GET /api/kline/{code}?period=daily|weekly|5|15|30|60`：K 线数据
 - `GET /api/analysis/{code}`：全维度分析
 - `GET /api/market`：市场概览
 - `GET /api/sectors`：板块排行
 - `GET /api/czsc/{code}`：缠论分析
 - `GET /api/watchlist`：自选股 / 回测候选
 
-## 数据源
+## 采集频率原则
 
-- **AKShare**：东方财富 / 新浪 / 腾讯等多源数据，免费无需 API key
-- 自动故障切换 + 请求限流 + 内存缓存
+| 数据源 | 推荐频率 | 说明 |
+|---|---:|---|
+| 通达信 `mootdx` | 实时 / 1 分钟 | 行情主源 |
+| 腾讯财经 | 5 分钟 | 估值补字段 |
+| 开盘啦/同花顺热点 | 5-10 分钟盘中，收盘后补一次 | 热点归因 |
+| AKShare | ≤5 次/分钟 | 只做低频 |
+| i问财 | ≤2 次/分钟 | 待实现，防验证码 |
 
-## 注意事项
+## 避坑要点
 
-- 本系统仅供学习研究使用，不构成投资建议
-- 股市有风险，投资需谨慎
-- AI 生成内容可能存在错误，请自行验证
+- 不要用 AKShare 高频爬实时行情。
+- 不要多线程/分布式打东财接口。
+- 策略脚本不要绕过 `data_provider.py` 或 provider 层直接访问行情源。
+- DuckDB 是本地缓存核心；大批量回测/验证可用 `ASHARE_DUCKDB_READ_ONLY=1` 避免写锁冲突。
+- `data/ashare.duckdb`、回测结果和缓存目录不提交 Git。
+
+## 免责声明
+
+本系统仅供学习研究使用，不构成投资建议。股市有风险，投资需谨慎；所有策略输出都需要人工复核。 

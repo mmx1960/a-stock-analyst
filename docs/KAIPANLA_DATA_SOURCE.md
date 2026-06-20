@@ -1,6 +1,8 @@
 # 开盘啦数据源接入
 
-本项目已接入开盘啦 App 公开接口作为热点/情绪数据源，接口调用方式参考 `jinhao2003/kaipanla-crawler`，但工程实现为项目内轻量 provider，不直接 vendoring 外部仓库。
+开盘啦是本项目“热点/情绪层”的当前落地实现，用于补足通达信/腾讯行情层无法提供的涨停原因、热点板块、强势股归因和市场情绪数据。完整数据源总架构见 `docs/DATA_SOURCE_ARCHITECTURE.md`。
+
+接口调用方式参考 `jinhao2003/kaipanla-crawler`，但工程实现为项目内轻量 provider，不直接 vendoring 外部仓库。后续若接入真正的同花顺热点或 i问财，本模块仍作为热点层的一部分，而不是行情主源。
 
 ## 数据链路
 

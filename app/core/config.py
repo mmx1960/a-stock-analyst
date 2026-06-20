@@ -51,6 +51,7 @@ DATA_SOURCE_CONFIG = {
     "primary_market_source": os.getenv("PRIMARY_MARKET_SOURCE", "mootdx"),
     "secondary_market_source": os.getenv("SECONDARY_MARKET_SOURCE", "tencent"),
     "low_freq_source": os.getenv("LOW_FREQ_SOURCE", "akshare"),
+    "hotspot_source": os.getenv("HOTSPOT_SOURCE", "kaipanla"),
     "historical_storage": os.getenv("HISTORICAL_STORAGE", "duckdb"),
     "duckdb_read_through": os.getenv("DUCKDB_READ_THROUGH", "true").lower() == "true",
 }
@@ -68,4 +69,13 @@ TENCENT_CONFIG = {
 
 AKSHARE_LOW_FREQ_CONFIG = {
     "rate_limit_seconds": float(os.getenv("AKSHARE_RATE_LIMIT", "5")),
+}
+
+KAIPANLA_CONFIG = {
+    "rate_limit_seconds": float(os.getenv("KAIPANLA_RATE_LIMIT", "0.5")),
+}
+
+IWENCAI_CONFIG = {
+    "cookie": os.getenv("IWENCAI_COOKIE", ""),
+    "rate_limit_seconds": float(os.getenv("IWENCAI_RATE_LIMIT", "30")),
 }
