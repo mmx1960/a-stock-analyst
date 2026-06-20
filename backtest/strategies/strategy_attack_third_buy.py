@@ -15,6 +15,7 @@ import pandas as pd
 
 from app.core.data_provider import data_provider
 from app.core.providers.bigamap_provider import bigamap_provider
+from app.core.providers.kaipanla_provider import kaipanla_provider
 from backtest.strategies.strategy_v3_1_realtime import (
     THROTTLE_SECONDS,
     calc_macd,
@@ -318,6 +319,11 @@ def scan_attack_third_buy(
 ) -> list[dict[str, Any]]:
     logger.info("=== 进攻型三买选股 v1 ===")
     code_theme_map: dict[str, dict[str, Any]] = {}
+    if pool_mode in {"kaipanla", "kaipanla_cache", "combined"}:
+        try:
+            code_theme_map.update(kaipanla_provider.get_cached_hot_stock_map())
+        except Exception as exc:
+            logger.warning("开盘啦本地热点池读取失败: %s", exc)
     if pool_mode in {"limit_up", "combined"}:
         limit_up_payload = bigamap_provider.get_limit_up_review()
         code_theme_map.update(get_hot_theme_codes(limit_up_payload, min_heat_score=min_heat_score))

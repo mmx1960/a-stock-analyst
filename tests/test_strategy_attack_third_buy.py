@@ -143,6 +143,7 @@ def test_scan_attack_third_buy_filters_stale_signals(monkeypatch):
         lambda payload, min_heat_score=45.0: {"000001": {"theme": "测试", "theme_heat_score": 80, "stock_name": "测试股"}},
     )
     monkeypatch.setattr(attack.bigamap_provider, "get_limit_up_review", lambda: {"limit_up": {"items": []}})
+    monkeypatch.setattr(attack.kaipanla_provider, "get_cached_hot_stock_map", lambda: {})
     monkeypatch.setattr(attack.data_provider, "get_realtime_quote", lambda code: {"name": "测试股", "price": 10, "turnover": 100_000_000})
     minute_calls = []
     monkeypatch.setattr(attack.data_provider, "get_kline_minute", lambda code, period="30": minute_calls.append((code, period)) or _make_attack_df())

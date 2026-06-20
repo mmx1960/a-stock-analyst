@@ -15,7 +15,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-stocks", type=int, default=80, help="最多扫描热点股票数，默认 80")
     parser.add_argument("--min-heat-score", type=float, default=45.0, help="热点板块最低热度分，默认 45")
     parser.add_argument("--signal-window-days", type=int, default=10, help="三买信号最大距今天数，默认 10")
-    parser.add_argument("--pool-mode", choices=["limit_up", "repeated_boards", "combined"], default="combined", help="股票池模式，默认 combined")
+    parser.add_argument("--pool-mode", choices=["limit_up", "repeated_boards", "kaipanla", "kaipanla_cache", "combined"], default="combined", help="股票池模式，默认 combined")
     parser.add_argument("--board-lookback-days", type=int, default=10, help="板块重复统计窗口，默认 10")
     parser.add_argument("--board-top-n", type=int, default=10, help="每日前 N 热点板块，默认 10")
     parser.add_argument("--board-min-appearances", type=int, default=3, help="进入前 N 的最少次数，默认 3")

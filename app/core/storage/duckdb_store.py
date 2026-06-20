@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime
 from pathlib import Path
@@ -76,6 +77,93 @@ class DuckDBStore:
                     source TEXT,
                     updated_at TIMESTAMP,
                     PRIMARY KEY (code, period, trade_dt)
+                )
+                """
+            )
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS kaipanla_market_sentiment (
+                    trade_date DATE PRIMARY KEY,
+                    up_count INTEGER,
+                    down_count INTEGER,
+                    flat_count INTEGER,
+                    limit_up_count INTEGER,
+                    actual_limit_up_count INTEGER,
+                    limit_down_count INTEGER,
+                    actual_limit_down_count INTEGER,
+                    rise_fall_ratio DOUBLE,
+                    yesterday_rise_fall_ratio DOUBLE,
+                    sh_index DOUBLE,
+                    sh_change_pct TEXT,
+                    sh_amount DOUBLE,
+                    first_board_count INTEGER,
+                    second_board_count INTEGER,
+                    third_board_count INTEGER,
+                    fourth_plus_board_count INTEGER,
+                    consecutive_board_rate DOUBLE,
+                    sharp_withdrawal_count INTEGER,
+                    source TEXT,
+                    raw_json TEXT,
+                    updated_at TIMESTAMP
+                )
+                """
+            )
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS kaipanla_limit_up_sectors (
+                    trade_date DATE,
+                    sector_code TEXT,
+                    sector_name TEXT,
+                    stock_count INTEGER,
+                    source TEXT,
+                    raw_json TEXT,
+                    updated_at TIMESTAMP,
+                    PRIMARY KEY (trade_date, sector_code)
+                )
+                """
+            )
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS kaipanla_limit_up_stocks (
+                    trade_date DATE,
+                    sector_code TEXT,
+                    sector_name TEXT,
+                    code TEXT,
+                    name TEXT,
+                    limit_up_price DOUBLE,
+                    turnover DOUBLE,
+                    circulating_market_cap DOUBLE,
+                    total_market_cap DOUBLE,
+                    consecutive_days INTEGER,
+                    consecutive_count INTEGER,
+                    concept_tags TEXT,
+                    theme TEXT,
+                    reason TEXT,
+                    seal_amount DOUBLE,
+                    main_net_inflow DOUBLE,
+                    first_limit_up_time TEXT,
+                    is_first_board INTEGER,
+                    source TEXT,
+                    raw_json TEXT,
+                    updated_at TIMESTAMP,
+                    PRIMARY KEY (trade_date, sector_code, code)
+                )
+                """
+            )
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS kaipanla_limit_up_ladder (
+                    trade_date DATE,
+                    code TEXT,
+                    name TEXT,
+                    consecutive_days INTEGER,
+                    tips TEXT,
+                    is_broken BOOLEAN,
+                    is_height_mark BOOLEAN,
+                    source TEXT,
+                    raw_json TEXT,
+                    updated_at TIMESTAMP,
+                    PRIMARY KEY (trade_date, code, consecutive_days, is_broken, is_height_mark)
                 )
                 """
             )
@@ -229,9 +317,154 @@ class DuckDBStore:
         df = self.get_minute_kline(code=code, period=period, start_date=start_date, end_date=end_date)
         return df is not None and not df.empty
 
+    def upsert_kaipanla_market_sentiment(self, df: pd.DataFrame) -> None:
+        if df is None or df.empty:
+            return
+        frame = df.copy()
+        if "updated_at" not in frame.columns:
+            frame["updated_at"] = datetime.now()
+        if "raw_json" not in frame.columns:
+            frame["raw_json"] = None
+        with self._connect() as con:
+            con.register("kpl_market_df", frame)
+            con.execute(
+                """
+                INSERT OR REPLACE INTO kaipanla_market_sentiment
+                SELECT trade_date, up_count, down_count, flat_count, limit_up_count,
+                       actual_limit_up_count, limit_down_count, actual_limit_down_count,
+                       rise_fall_ratio, yesterday_rise_fall_ratio, sh_index, sh_change_pct,
+                       sh_amount, first_board_count, second_board_count, third_board_count,
+                       fourth_plus_board_count, consecutive_board_rate, sharp_withdrawal_count,
+                       source, raw_json, updated_at
+                FROM kpl_market_df
+                """
+            )
+
+    def upsert_kaipanla_limit_up(self, sectors_df: pd.DataFrame, stocks_df: pd.DataFrame) -> None:
+        now = datetime.now()
+        with self._connect() as con:
+            if sectors_df is not None and not sectors_df.empty:
+                sectors = sectors_df.copy()
+                if "updated_at" not in sectors.columns:
+                    sectors["updated_at"] = now
+                if "raw_json" not in sectors.columns:
+                    sectors["raw_json"] = None
+                con.register("kpl_sectors_df", sectors)
+                con.execute(
+                    """
+                    INSERT OR REPLACE INTO kaipanla_limit_up_sectors
+                    SELECT trade_date, sector_code, sector_name, stock_count, source, raw_json, updated_at
+                    FROM kpl_sectors_df
+                    """
+                )
+            if stocks_df is not None and not stocks_df.empty:
+                stocks = stocks_df.copy()
+                if "updated_at" not in stocks.columns:
+                    stocks["updated_at"] = now
+                if "raw_json" not in stocks.columns:
+                    stocks["raw_json"] = None
+                con.register("kpl_stocks_df", stocks)
+                con.execute(
+                    """
+                    INSERT OR REPLACE INTO kaipanla_limit_up_stocks
+                    SELECT trade_date, sector_code, sector_name, code, name, limit_up_price,
+                           turnover, circulating_market_cap, total_market_cap, consecutive_days,
+                           consecutive_count, concept_tags, theme, reason, seal_amount,
+                           main_net_inflow, first_limit_up_time, is_first_board, source, raw_json,
+                           updated_at
+                    FROM kpl_stocks_df
+                    """
+                )
+
+    def upsert_kaipanla_limit_up_ladder(self, df: pd.DataFrame) -> None:
+        if df is None or df.empty:
+            return
+        frame = df.copy()
+        if "updated_at" not in frame.columns:
+            frame["updated_at"] = datetime.now()
+        if "raw_json" not in frame.columns:
+            frame["raw_json"] = None
+        with self._connect() as con:
+            con.register("kpl_ladder_df", frame)
+            con.execute(
+                """
+                INSERT OR REPLACE INTO kaipanla_limit_up_ladder
+                SELECT trade_date, code, name, consecutive_days, tips, is_broken,
+                       is_height_mark, source, raw_json, updated_at
+                FROM kpl_ladder_df
+                """
+            )
+
+    def get_kaipanla_market_sentiment(self, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
+        clauses = []
+        params = []
+        if start_date:
+            clauses.append("trade_date >= ?")
+            params.append(self._normalize_date(start_date))
+        if end_date:
+            clauses.append("trade_date <= ?")
+            params.append(self._normalize_date(end_date))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as con:
+            return con.execute(f"SELECT * FROM kaipanla_market_sentiment {where} ORDER BY trade_date", params).df()
+
+    def get_kaipanla_limit_up_stocks(self, trade_date: Optional[str] = None, min_consecutive_days: int = 1) -> pd.DataFrame:
+        clauses = ["consecutive_days >= ?"]
+        params = [int(min_consecutive_days)]
+        if trade_date:
+            clauses.append("trade_date = ?")
+            params.append(self._normalize_date(trade_date))
+        sql = f"""
+            SELECT *
+            FROM kaipanla_limit_up_stocks
+            WHERE {' AND '.join(clauses)}
+            ORDER BY trade_date DESC, consecutive_days DESC, seal_amount DESC
+        """
+        with self._connect() as con:
+            return con.execute(sql, params).df()
+
+    def get_kaipanla_limit_up_sectors(self, trade_date: Optional[str] = None) -> pd.DataFrame:
+        clauses = []
+        params = []
+        if trade_date:
+            clauses.append("trade_date = ?")
+            params.append(self._normalize_date(trade_date))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as con:
+            return con.execute(f"SELECT * FROM kaipanla_limit_up_sectors {where} ORDER BY trade_date DESC, stock_count DESC", params).df()
+
+    def get_latest_kaipanla_limit_up_trade_date(self) -> Optional[str]:
+        with self._connect() as con:
+            rows = con.execute("SELECT max(trade_date) AS trade_date FROM kaipanla_limit_up_stocks").fetchall()
+        if not rows or rows[0][0] is None:
+            return None
+        return str(rows[0][0])[:10]
+
+    def get_latest_kaipanla_trade_date(self) -> Optional[str]:
+        with self._connect() as con:
+            rows = con.execute(
+                """
+                SELECT max(trade_date) AS trade_date
+                FROM (
+                    SELECT trade_date FROM kaipanla_limit_up_stocks
+                    UNION ALL
+                    SELECT trade_date FROM kaipanla_market_sentiment
+                )
+                """
+            ).fetchall()
+        if not rows or rows[0][0] is None:
+            return None
+        return str(rows[0][0])[:10]
+
+    @staticmethod
+    def json_dumps(value) -> str:
+        return json.dumps(value, ensure_ascii=False, default=str)
+
     @staticmethod
     def _normalize_date(value: str) -> str:
         value = str(value)
         if len(value) == 8 and value.isdigit():
             return f"{value[:4]}-{value[4:6]}-{value[6:8]}"
         return value[:10]
+
+
