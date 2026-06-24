@@ -1,0 +1,57 @@
+groups:
+  bootstrap:
+    - stock_basic_daily
+    - tdx_sector_membership
+    - daily_kline_incremental
+  intraday:
+    - realtime_quote_intraday
+    - sector_strength_intraday
+  after_close:
+    - daily_kline_incremental
+    - tdx_sector_membership
+    - sector_strength_intraday
+
+jobs:
+  stock_basic_daily:
+    type: stock_list
+    enabled: true
+    params:
+      limit: 0
+
+  daily_kline_incremental:
+    type: kline
+    enabled: true
+    params:
+      period: d
+      adjust: hfq
+      incremental_days: 10
+      limit: 0
+
+  minute_kline_intraday:
+    type: kline
+    enabled: false
+    params:
+      period: 5m
+      incremental_days: 1
+      limit: 200
+
+  realtime_quote_intraday:
+    type: realtime_quote
+    enabled: false
+    params:
+      codes: []
+
+  sector_strength_intraday:
+    type: sector_strength
+    enabled: false
+    params:
+      trade_date: ""
+
+  tdx_sector_membership:
+    type: sector_membership
+    enabled: true
+    params:
+      source: tdx
+      limit: 0
+      offset: 0
+      throttle: 0.2

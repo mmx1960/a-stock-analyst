@@ -67,13 +67,13 @@ def main() -> None:
 
     if do_all or args.sync_membership:
         # 杰哥需要“龙头/板块龙头/跟风狗”的归属；D神需要“板块资金一致性”的匹配。
-        # 默认先跑相对稳的开盘啦历史投影 + 东财行业/概念；cninfo/ths 可用 limit 分批继续。
+        # 默认先跑开盘啦历史投影 + 通达信多级行业，再用东财概念做题材补充。
         cmd = [
             sys.executable,
             "scripts/sync_stock_sector_membership.py",
             "--sources",
             "kaipanla_history",
-            "akshare_em_industry",
+            "tdx_industry",
             "akshare_em_concept",
             "--start-date",
             args.start_date,

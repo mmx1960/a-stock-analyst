@@ -14,7 +14,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.core.providers.baostock_provider import BaostockProvider
-from app.core.providers.composite_provider import CompositeProvider
 from app.core.storage.duckdb_store import DuckDBStore
 
 
@@ -104,6 +103,8 @@ def main():
     parser.add_argument("--refresh-incomplete-minute", action="store_true", help="分钟线本地覆盖不足时强制用 baostock 重拉并 upsert")
     parser.add_argument("--min-minute-rows", type=int, default=0, help="配合 --refresh-incomplete-minute；本地分钟行数低于该值则重拉")
     args = parser.parse_args()
+
+    from app.core.providers.composite_provider import CompositeProvider
 
     provider = CompositeProvider()
     baostock_provider = BaostockProvider(auto_logout=False)

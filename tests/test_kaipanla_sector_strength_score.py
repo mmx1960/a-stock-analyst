@@ -82,6 +82,30 @@ def test_infer_candidate_sectors_falls_back_to_cninfo_when_ths_missing() -> None
     assert sectors == {"银行"}
 
 
+def test_infer_candidate_sectors_prefers_tdx_deepest_industry_level() -> None:
+    membership = pd.DataFrame([
+        {"sector_name": "信息技术", "sector_type": "tdx_industry_l1", "source": "tdx"},
+        {"sector_name": "软件服务", "sector_type": "tdx_industry_l2", "source": "tdx"},
+        {"sector_name": "基础软件", "sector_type": "tdx_industry_l3", "source": "tdx"},
+        {"sector_name": "AI智能体", "sector_type": "concept", "source": "ths_concept_page"},
+    ])
+
+    sectors = infer_candidate_sectors(pd.DataFrame(), explicit_sector="算力", membership=membership)
+
+    assert sectors == {"基础软件"}
+
+
+def test_infer_candidate_sectors_falls_back_to_tdx_l2_when_l3_missing() -> None:
+    membership = pd.DataFrame([
+        {"sector_name": "信息技术", "sector_type": "tdx_industry_l1", "source": "tdx"},
+        {"sector_name": "软件服务", "sector_type": "tdx_industry_l2", "source": "tdx"},
+    ])
+
+    sectors = infer_candidate_sectors(pd.DataFrame(), membership=membership)
+
+    assert sectors == {"软件服务"}
+
+
 def test_score_sector_strength_uses_db_stock_sector_membership(monkeypatch) -> None:
     ranked = pd.DataFrame([
         {"trade_date": "2026-06-19", "sector_name": "半导体", "sector_rank": 1, "stock_count": 20},

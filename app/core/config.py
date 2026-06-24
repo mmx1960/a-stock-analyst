@@ -46,14 +46,16 @@ ALERTS = {
 
 # 多源数据架构配置
 DUCKDB_PATH = Path(os.getenv("DUCKDB_PATH", str(BASE_DIR / "data" / "ashare.duckdb")))
+SQLITE_PATH = Path(os.getenv("SQLITE_PATH", str(BASE_DIR / "data" / "ashare.sqlite3")))
 
 DATA_SOURCE_CONFIG = {
     "primary_market_source": os.getenv("PRIMARY_MARKET_SOURCE", "mootdx"),
     "secondary_market_source": os.getenv("SECONDARY_MARKET_SOURCE", "tencent"),
     "low_freq_source": os.getenv("LOW_FREQ_SOURCE", "akshare"),
     "hotspot_source": os.getenv("HOTSPOT_SOURCE", "kaipanla"),
-    "historical_storage": os.getenv("HISTORICAL_STORAGE", "duckdb"),
+    "historical_storage": os.getenv("HISTORICAL_STORAGE", "sqlite"),
     "duckdb_read_through": os.getenv("DUCKDB_READ_THROUGH", "true").lower() == "true",
+    "sqlite_path": str(SQLITE_PATH),
 }
 
 MOOTDX_CONFIG = {

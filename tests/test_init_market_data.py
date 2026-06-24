@@ -14,6 +14,7 @@ def test_build_steps_defaults_are_safe_and_manual() -> None:
     membership = next(step for step in steps if step.name == "sector-membership")
     assert membership.command[:3] == [sys.executable, "scripts/sync_stock_sector_membership.py", "--sources"]
     assert "kaipanla_history" in membership.command
+    assert "tdx_industry" in membership.command
     assert "cninfo_industry" not in membership.command
 
 
