@@ -191,9 +191,18 @@ def _rows_from_local_daily(store: DuckDBStore, trade_date: str, max_sectors_per_
     if not memberships.empty:
         memberships["code"] = memberships["code"].astype(str).str.zfill(6)
         for code, group in memberships.groupby("code"):
-            # 杰哥视角：优先概念/热点，其次行业；避免一只票爆出几十个概念导致表膨胀。
+            # 先用通达信细分行业，再按热点/概念补充；避免一级行业过宽导致板块统计失真。
             group = group.copy()
-            group["priority"] = group["sector_type"].map({"hotspot": 0, "concept": 1, "industry": 2}).fillna(3)
+            group["priority"] = group["sector_type"].map(
+                {
+                    "tdx_industry_l3": 0,
+                    "tdx_industry_l2": 1,
+                    "tdx_industry_l1": 2,
+                    "hotspot": 3,
+                    "concept": 4,
+                    "industry": 5,
+                }
+            ).fillna(9)
             selected = group.sort_values(["priority", "source", "sector_name"]).head(max_sectors_per_stock)
             membership_by_code[code] = selected.to_dict("records")
 
@@ -343,7 +352,15 @@ def sync_bulk_local_daily(store: DuckDBStore, start_date: str, end_date: str, ma
                 row_number() over (
                     partition by m.code
                     order by
-                        case m.sector_type when 'hotspot' then 0 when 'concept' then 1 when 'industry' then 2 else 3 end,
+                        case m.sector_type
+                            when 'tdx_industry_l3' then 0
+                            when 'tdx_industry_l2' then 1
+                            when 'tdx_industry_l1' then 2
+                            when 'hotspot' then 3
+                            when 'concept' then 4
+                            when 'industry' then 5
+                            else 9
+                        end,
                         m.source,
                         m.sector_name
                 ) as rn

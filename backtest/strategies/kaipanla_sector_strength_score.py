@@ -7,6 +7,7 @@ from typing import Any
 
 import pandas as pd
 
+from app.core.sector_priority import is_tdx_industry_type
 from app.core.storage.duckdb_store import DuckDBStore
 
 
@@ -432,14 +433,20 @@ def infer_candidate_sectors(
 ) -> set[str]:
     membership_by_priority: list[set[str]] = [set() for _ in FALLBACK_SOURCE_PRIORITY]
     other_membership_sectors: set[str] = set()
+    tdx_industry_by_level: dict[int, set[str]] = {1: set(), 2: set(), 3: set()}
     if membership is not None and not membership.empty:
         for _, row in membership.iterrows():
             value = row.get("sector_name")
             text = str(value).strip() if value is not None and not pd.isna(value) else ""
             source = str(row.get("source") or "").strip()
+            sector_type = str(row.get("sector_type") or "").strip()
             if not text or text in INVALID_SECTOR_NAMES:
                 continue
             if source in LOW_CONFIDENCE_SECTOR_SOURCES:
+                continue
+            if is_tdx_industry_type(sector_type):
+                level = int(sector_type.rsplit("_l", 1)[1])
+                tdx_industry_by_level[level].add(normalize_sector_name(text))
                 continue
             placed = False
             for idx, source_group in enumerate(FALLBACK_SOURCE_PRIORITY):
@@ -452,6 +459,10 @@ def infer_candidate_sectors(
 
     if membership_by_priority and membership_by_priority[0]:
         return membership_by_priority[0]
+
+    for level in (3, 2, 1):
+        if tdx_industry_by_level[level]:
+            return tdx_industry_by_level[level]
 
     kaipanla_sectors: set[str] = set()
     if stock_window is not None and not stock_window.empty:

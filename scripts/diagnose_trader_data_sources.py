@@ -214,7 +214,7 @@ def _recommended_actions(checks: list[dict[str, Any]]) -> list[str]:
     if names.get("kaipanla_sector_strength", {}).get("status") != "OK":
         actions.append("扩展 kaipanla_sector_strength 板块池：用 BigAmap 当前热点板块 + D神/杰哥核心题材池跑历史区间强度。")
     if names.get("stock_sector_membership", {}).get("status") != "OK":
-        actions.append("继续补 stock_sector_membership：优先 akshare_em_industry/akshare_em_concept，其次 cninfo_industry/ths_concept 分批。")
+        actions.append("继续补 stock_sector_membership：优先 tdx_industry 多级行业，其次 ths_concept/akshare_em_concept 分批。")
     if names.get("kaipanla_limit_up_stocks", {}).get("status") != "OK":
         actions.append("补涨停生态历史：当前开盘啦历史涨停接口只能可靠同步近端/当日，需接 BigAmap/同花顺/本地导入源做历史复盘补充。")
     if names.get("realtime_quote_snapshot", {}).get("status") != "OK":

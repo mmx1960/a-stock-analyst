@@ -8,6 +8,7 @@ from backtest.filters.no_touch_filters import (
     check_high_turnover_before_buy,
     check_multiple_one_word_boards,
     check_top_bearish_high_turnover,
+    _preferred_candidate_sectors,
 )
 
 
@@ -99,3 +100,16 @@ def test_high_turnover_before_buy_ignores_40pct_turnover_before_10_trade_days():
     ok, meta = check_high_turnover_before_buy(daily)
     assert ok
     assert meta["no_touch_high_turnover_found"] is False
+
+
+def test_preferred_candidate_sectors_uses_deepest_tdx_industry_level():
+    frame = pd.DataFrame(
+        [
+            {"sector_name": "信息技术", "sector_type": "tdx_industry_l1"},
+            {"sector_name": "软件服务", "sector_type": "tdx_industry_l2"},
+            {"sector_name": "基础软件", "sector_type": "tdx_industry_l3"},
+            {"sector_name": "AI智能体", "sector_type": "concept"},
+        ]
+    )
+
+    assert _preferred_candidate_sectors(frame) == {"基础软件"}

@@ -5,6 +5,7 @@ from typing import Any
 
 import pandas as pd
 
+from app.core.sector_priority import is_tdx_industry_type
 from app.core.storage.duckdb_store import DuckDBStore
 
 _MEMBERSHIP_CACHE: dict[str, set[str]] = {}
@@ -162,16 +163,48 @@ def _load_candidate_sectors(code: str, *, store: DuckDBStore) -> set[str]:
     with store._connect() as con:
         frame = con.execute(
             """
-            select distinct sector_name
+            select distinct sector_name, sector_type
             from stock_sector_membership
             where code=? and coalesce(is_current, true)
               and sector_name is not null and sector_name <> ''
+            order by
+              case sector_type
+                when 'tdx_industry_l3' then 0
+                when 'tdx_industry_l2' then 1
+                when 'tdx_industry_l1' then 2
+                when 'kaipanla_sector' then 3
+                when 'hotspot' then 4
+                when 'concept' then 5
+                when 'industry' then 6
+                else 99
+              end,
+              sector_name
             """,
             [normalized],
         ).df()
-    sectors = {str(v) for v in frame["sector_name"].tolist() if str(v).strip()}
+    sectors = _preferred_candidate_sectors(frame)
     _MEMBERSHIP_CACHE[normalized] = sectors
     return sectors
+
+
+def _preferred_candidate_sectors(frame: pd.DataFrame) -> set[str]:
+    if frame is None or frame.empty:
+        return set()
+    tdx_by_level: dict[int, set[str]] = {1: set(), 2: set(), 3: set()}
+    fallback: set[str] = set()
+    for _, row in frame.iterrows():
+        name = str(row.get("sector_name") or "").strip()
+        sector_type = str(row.get("sector_type") or "").strip()
+        if not name:
+            continue
+        if is_tdx_industry_type(sector_type):
+            tdx_by_level[int(sector_type.rsplit("_l", 1)[1])].add(name)
+        else:
+            fallback.add(name)
+    for level in (3, 2, 1):
+        if tdx_by_level[level]:
+            return tdx_by_level[level]
+    return fallback
 
 
 def check_sector_top3_history(

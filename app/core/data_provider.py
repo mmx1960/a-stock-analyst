@@ -13,13 +13,18 @@ from datetime import datetime
 from functools import wraps
 from typing import Optional
 
-import akshare as ak
 import pandas as pd
 
 from app.core.config import CACHE_CONFIG, MIN_REQUEST_INTERVAL
-from app.core.providers.composite_provider import CompositeProvider
+from app.core.services.market_data_service import MarketDataService
 
 logger = logging.getLogger(__name__)
+
+
+def _akshare():
+    import akshare as ak
+
+    return ak
 
 
 class LRUCache:
@@ -88,7 +93,8 @@ class DataProvider:
 
     def __init__(self):
         self._cache = cache
-        self.composite = CompositeProvider()
+        self.composite = None
+        self.service = MarketDataService()
 
     def convert_code(self, code: str) -> str:
         return str(code).split(".")[0].replace("sh", "").replace("sz", "").replace("bj", "")
@@ -110,7 +116,8 @@ class DataProvider:
         if cached is not None:
             return cached
         _throttle()
-        stocks = self.composite.get_stock_list()
+        df = self.service.get_stock_list()
+        stocks = df.fillna("").to_dict("records") if df is not None and not df.empty else self._composite().get_stock_list()
         if stocks:
             self._cache.set(cache_key, stocks, CACHE_CONFIG["stock_list"])
         return stocks
@@ -123,7 +130,9 @@ class DataProvider:
         if cached is not None:
             return cached
         _throttle()
-        quote = self.composite.get_realtime_quote(code)
+        quote = self.service.get_realtime_quote(code, refresh=True)
+        if quote and quote.get("source") == "sqlite_empty_quote":
+            quote = self._composite().get_realtime_quote(code)
         if quote:
             quote.setdefault("updated_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             self._cache.set(cache_key, quote, CACHE_CONFIG["realtime_quote"])
@@ -143,7 +152,14 @@ class DataProvider:
         if cached is not None:
             return cached
         _throttle()
-        df = self.composite.get_daily_bars(code=code, start_date=start_date or None, end_date=end_date or None, adjust="hfq")
+        df = self.service.get_kline(
+            code=code,
+            period="d",
+            start_date=start_date or None,
+            end_date=end_date or None,
+            adjust="hfq",
+            refresh_missing=True,
+        )
         if df is not None and not df.empty:
             if not _is_read_only_mode():
                 self._cache.set(cache_key, df, CACHE_CONFIG["kline_daily"])
@@ -158,7 +174,7 @@ class DataProvider:
         if cached is not None:
             return cached
         _throttle()
-        df = self.composite.get_minute_bars(code=code, period=period)
+        df = self.service.get_kline(code=code, period=period, adjust="", refresh_missing=True)
         if df is not None and not df.empty:
             self._cache.set(cache_key, df, CACHE_CONFIG["kline_minute"])
             return df
@@ -167,7 +183,7 @@ class DataProvider:
     @_handle_errors
     def get_market_overview(self) -> Optional[dict]:
         _throttle()
-        df = ak.stock_zh_index_spot_em()
+        df = _akshare().stock_zh_index_spot_em()
         if df is None or df.empty:
             return None
         target_codes = {
@@ -200,7 +216,7 @@ class DataProvider:
         _throttle()
         result = self.composite.get_realtime_quote(code) or {"code": code}
         try:
-            info = ak.stock_individual_info_em(symbol=code)
+            info = _akshare().stock_individual_info_em(symbol=code)
             if info is not None and not info.empty:
                 for _, row in info.iterrows():
                     key = str(row.get("item", ""))
@@ -222,7 +238,7 @@ class DataProvider:
         market = "sh" if code.startswith("6") else "sz"
         _throttle()
         try:
-            df = ak.stock_individual_fund_flow(stock=code, market=market)
+            df = _akshare().stock_individual_fund_flow(stock=code, market=market)
             if df is None or df.empty:
                 return None
             latest = df.iloc[-1]
@@ -243,7 +259,7 @@ class DataProvider:
     def get_northbound_flow(self) -> Optional[dict]:
         _throttle()
         try:
-            df = ak.stock_hsgt_north_net_flow_in_em(symbol="北上")
+            df = _akshare().stock_hsgt_north_net_flow_in_em(symbol="北上")
             if df is None or df.empty:
                 return None
             latest = df.iloc[0]
@@ -261,7 +277,7 @@ class DataProvider:
     def get_sector_rank(self, indicator: str = "今日涨跌排名") -> Optional[list]:
         _throttle()
         try:
-            df = ak.stock_board_industry_name_em()
+            df = _akshare().stock_board_industry_name_em()
             if df is None or df.empty:
                 return None
             sectors = []
@@ -278,6 +294,13 @@ class DataProvider:
             return sectors
         except Exception:
             return None
+
+    def _composite(self):
+        if self.composite is None:
+            from app.core.providers.composite_provider import CompositeProvider
+
+            self.composite = CompositeProvider()
+        return self.composite
 
 
 # 全局单例

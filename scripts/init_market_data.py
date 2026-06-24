@@ -178,8 +178,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--sector-membership-sources",
         nargs="*",
-        default=["kaipanla_history"],
-        help="传给 sync_stock_sector_membership.py 的 sources；默认只投影本地开盘啦历史，避免初始化时重打外部大源",
+        default=["kaipanla_history", "tdx_industry"],
+        help="传给 sync_stock_sector_membership.py 的 sources；默认投影本地开盘啦历史并拉取通达信多级行业",
     )
     parser.add_argument("--sector-membership-limit-stocks", type=int, default=0)
     parser.add_argument("--sector-membership-limit-boards", type=int, default=0)

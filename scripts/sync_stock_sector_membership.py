@@ -18,6 +18,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.core.providers.kaipanla_provider import KaipanlaProvider
+from app.core.providers.mootdx_provider import MootdxProvider
+from app.core.sources.tdx_sector_source import normalize_tdx_industry_rows
 from app.core.storage.duckdb_store import DuckDBStore
 from scripts.sync_kaipanla_data import DEFAULT_SECTOR_STRENGTH_BOARDS, _parse_sector_codes
 
@@ -331,6 +333,39 @@ def _sync_cninfo_industry(
     return pd.DataFrame(all_rows)
 
 
+def _sync_tdx_industry(
+    *,
+    store: DuckDBStore,
+    limit_stocks: int = 0,
+    offset: int = 0,
+    throttle: float = 0.2,
+) -> pd.DataFrame:
+    stocks = store.get_stock_basic()
+    if stocks is None or stocks.empty:
+        raise ValueError("stock_basic is empty; run scripts/sync_stock_list.py first")
+    stocks = stocks.sort_values("code").iloc[max(0, offset):]
+    if limit_stocks > 0:
+        stocks = stocks.head(limit_stocks)
+
+    provider = MootdxProvider()
+    all_rows: list[dict[str, Any]] = []
+    for position, (_, stock) in enumerate(stocks.iterrows(), start=1):
+        code = _normalize_code(stock.get("code"))
+        name = _clean_text(stock.get("name"))
+        if not code:
+            continue
+        try:
+            payload = provider.get_stock_industry_hierarchy(code)
+            rows = normalize_tdx_industry_rows(payload, code=code, name=name)
+            all_rows.extend(rows)
+            print(f"[{position}/{len(stocks)}] tdx {code} rows={len(rows)}")
+        except Exception as exc:
+            print(f"[{position}/{len(stocks)}] tdx {code} failed={type(exc).__name__}: {exc}")
+        if throttle > 0:
+            time.sleep(throttle)
+    return pd.DataFrame(all_rows)
+
+
 def _extract_ths_stock_table(html: str) -> pd.DataFrame:
     try:
         tables = pd.read_html(StringIO(html))
@@ -437,8 +472,8 @@ def main() -> None:
     parser.add_argument(
         "--sources",
         nargs="*",
-        default=["kaipanla_history", "cninfo_industry", "ths_concept", "akshare_em_industry", "akshare_em_concept"],
-        help="可选：kaipanla_history kaipanla_sector_constituents cninfo_industry ths_concept akshare_em_industry akshare_em_concept",
+        default=["kaipanla_history", "tdx_industry", "ths_concept", "akshare_em_industry", "akshare_em_concept"],
+        help="可选：kaipanla_history kaipanla_sector_constituents tdx_industry cninfo_industry ths_concept akshare_em_industry akshare_em_concept",
     )
     parser.add_argument("--start-date", default="", help="kaipanla_history 起始日期")
     parser.add_argument("--end-date", default="", help="kaipanla_history 截止日期")
@@ -481,6 +516,13 @@ def main() -> None:
                 frame = _sync_akshare_em("concept", limit_boards=args.limit_boards, throttle=args.throttle)
             elif source == "cninfo_industry":
                 frame = _sync_cninfo_industry(
+                    store=store,
+                    limit_stocks=args.limit_stocks,
+                    offset=args.offset,
+                    throttle=args.throttle,
+                )
+            elif source == "tdx_industry":
+                frame = _sync_tdx_industry(
                     store=store,
                     limit_stocks=args.limit_stocks,
                     offset=args.offset,

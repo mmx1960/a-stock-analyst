@@ -616,7 +616,20 @@ class DuckDBStore:
                 FROM stock_sector_membership
                 WHERE {' AND '.join(clauses)}
                 ORDER BY
-                    CASE sector_type WHEN 'industry' THEN 0 WHEN 'concept' THEN 1 ELSE 2 END,
+                    CASE sector_type
+                        WHEN 'tdx_industry_l3' THEN 0
+                        WHEN 'tdx_industry_l2' THEN 1
+                        WHEN 'tdx_industry_l1' THEN 2
+                        WHEN 'kaipanla_sector' THEN 3
+                        WHEN 'hotspot' THEN 4
+                        WHEN 'concept' THEN 5
+                        WHEN 'industry' THEN 6
+                        WHEN 'cninfo_industry_l4' THEN 8
+                        WHEN 'cninfo_industry_l3' THEN 9
+                        WHEN 'cninfo_industry_l2' THEN 10
+                        WHEN 'cninfo_industry_l1' THEN 11
+                        ELSE 99
+                    END,
                     source,
                     sector_name
                 """,
