@@ -1,9 +1,16 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
-from app.core.providers.kaipanla_provider import KaipanlaProvider
+from app.core.providers.kaipanla_provider import KaipanlaDateMismatchError, KaipanlaProvider
 from app.core.storage.duckdb_store import DuckDBStore
+
+
+def test_kaipanla_provider_disables_environment_proxy(tmp_path: Path):
+    store = DuckDBStore(tmp_path / "test.duckdb")
+    provider = KaipanlaProvider(store=store)
+    assert provider._session.trust_env is False
 
 
 def test_kaipanla_normalize_limit_up_frames_and_cache_hot_map(tmp_path: Path):
@@ -88,6 +95,18 @@ def test_kaipanla_market_sentiment_upsert_query(tmp_path: Path):
     assert int(result.iloc[0]["limit_up_count"]) == 80
 
 
+def test_kaipanla_limit_up_rejects_mismatched_response_date(monkeypatch):
+    provider = KaipanlaProvider()
+
+    def fake_post(url, data):
+        return {"errcode": "0", "date": "2026-06-18", "nums": {}, "list": []}
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+
+    with pytest.raises(KaipanlaDateMismatchError, match="requested 2024-01-02, got 2026-06-18"):
+        provider.get_limit_up_sectors("2024-01-02")
+
+
 def test_kaipanla_ladder_normalize(tmp_path: Path):
     store = DuckDBStore(tmp_path / "test.duckdb")
     provider = KaipanlaProvider(store=store)
@@ -101,3 +120,40 @@ def test_kaipanla_ladder_normalize(tmp_path: Path):
     assert len(frame) == 2
     assert set(frame["code"]) == {"000001", "000002"}
     store.upsert_kaipanla_limit_up_ladder(frame)
+
+
+def test_kaipanla_plate_interval_strength_sums_daily_qj_values(tmp_path: Path, monkeypatch):
+    store = DuckDBStore(tmp_path / "test.duckdb")
+    provider = KaipanlaProvider(store=store)
+    daily = {
+        "2026-06-12": [8, -4268, 9_000_000_000, 1_000_000_000],
+        "2026-06-15": [1, 40075, 20_000_000_000, 2_000_000_000],
+        "2026-06-16": [2, 19811, 10_000_000_000, 3_000_000_000],
+        "2026-06-17": [3, 14169, 8_000_000_000, 4_000_000_000],
+        "2026-06-18": [3, 9882, 10_732_000_000, 5_000_000_000],
+    }
+
+    def fake_post(url, data):
+        trade_date = data["Date"]
+        return {"errcode": "0", "Date": trade_date, "List": daily[trade_date]}
+
+    monkeypatch.setattr(provider, "_post", fake_post)
+
+    frame = provider.sync_sector_strength(
+        "2026-06-18",
+        sector_codes=["801660"],
+        sector_names={"801660": "通信"},
+        lookback_days=5,
+    )
+
+    assert len(frame) == 1
+    row = frame.iloc[0]
+    assert row["sector_code"] == "801660"
+    assert row["sector_name"] == "通信"
+    assert row["strength_score"] == 83937
+    assert row["main_net_inflow"] == 15_000_000_000
+    assert row["turnover"] == 57_732_000_000
+
+    cached = store.get_kaipanla_sector_strength("2026-06-18", "2026-06-18")
+    assert len(cached) == 1
+    assert int(cached.iloc[0]["strength_score"]) == 83937

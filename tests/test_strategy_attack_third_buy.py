@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 
+from app.core.data.market_data_provider import MarketDataProvider
 from backtest.strategies import strategy_attack_third_buy as attack
 from backtest.strategies.strategy_attack_third_buy import (
     analyze_attack_third_buy_signal,
@@ -156,3 +157,54 @@ def test_scan_attack_third_buy_filters_stale_signals(monkeypatch):
 
     assert scan_attack_third_buy(max_stocks=1, signal_window_days=10, throttle_seconds=0) == []
     assert minute_calls == [("000001", "30")]
+
+
+class FakeMarketDataProvider(MarketDataProvider):
+    def __init__(self):
+        self.minute_calls = []
+        self.daily_calls = []
+
+    def get_realtime_quote(self, code):
+        return {"name": "测试股", "price": 10, "turnover": 100_000_000}
+
+    def get_minute_bars(self, code, period="30", start_date=None, end_date=None):
+        self.minute_calls.append((code, period))
+        return _make_attack_df()
+
+    def get_daily_bars(self, code, start_date=None, end_date=None, adjust="hfq"):
+        self.daily_calls.append((code, start_date))
+        return _make_attack_df()
+
+    def get_stock_list(self, limit=None):
+        return pd.DataFrame()
+
+    def get_sector_membership(self, code, current_only=True):
+        return pd.DataFrame()
+
+    def get_sector_strength(self, start_date=None, end_date=None):
+        return pd.DataFrame()
+
+
+def test_scan_attack_third_buy_uses_injected_market_data_provider(monkeypatch):
+    monkeypatch.setattr(
+        attack,
+        "get_hot_theme_codes",
+        lambda payload, min_heat_score=45.0: {"000001": {"theme": "测试", "theme_heat_score": 80, "stock_name": "测试股"}},
+    )
+    monkeypatch.setattr(attack.bigamap_provider, "get_limit_up_review", lambda: {"limit_up": {"items": []}})
+    monkeypatch.setattr(attack.kaipanla_provider, "get_cached_hot_stock_map", lambda: {})
+    monkeypatch.setattr(attack.data_provider, "get_realtime_quote", lambda code: (_ for _ in ()).throw(AssertionError("global data_provider quote should not be used")))
+    monkeypatch.setattr(attack.data_provider, "get_kline_minute", lambda code, period="30": (_ for _ in ()).throw(AssertionError("global data_provider minute should not be used")))
+    monkeypatch.setattr(
+        attack,
+        "analyze_attack_third_buy_signal",
+        lambda df, theme, now=None, structure_period="30": {"days_ago": 1, "attack_score": 50, "third_buy_reason": "test"},
+    )
+    provider = FakeMarketDataProvider()
+
+    result = scan_attack_third_buy(max_stocks=1, signal_window_days=10, throttle_seconds=0, provider=provider)
+
+    assert result[0]["code"] == "000001"
+    assert result[0]["name"] == "测试股"
+    assert provider.minute_calls == [("000001", "30")]
+    assert provider.daily_calls == []

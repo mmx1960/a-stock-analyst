@@ -13,6 +13,7 @@ from typing import Any
 
 import pandas as pd
 
+from app.core.data.market_data_provider import MarketDataProvider
 from app.core.data_provider import data_provider
 from app.core.providers.bigamap_provider import bigamap_provider
 from app.core.providers.kaipanla_provider import kaipanla_provider
@@ -316,7 +317,10 @@ def scan_attack_third_buy(
     board_min_appearances: int = 3,
     structure_period: str = DEFAULT_STRUCTURE_PERIOD,
     throttle_seconds: float = THROTTLE_SECONDS,
+    provider: MarketDataProvider | None = None,
+    as_of_date: str | None = None,
 ) -> list[dict[str, Any]]:
+    del as_of_date
     logger.info("=== 进攻型三买选股 v1 ===")
     code_theme_map: dict[str, dict[str, Any]] = {}
     if pool_mode in {"kaipanla", "kaipanla_cache", "combined"}:
@@ -339,16 +343,23 @@ def scan_attack_third_buy(
                 code_theme_map[code] = theme_info
     logger.info("热点候选股票数: %s (pool_mode=%s)", len(code_theme_map), pool_mode)
 
+    market_data = provider or data_provider
     results: list[dict[str, Any]] = []
     for i, (code, theme_info) in enumerate(list(code_theme_map.items())[:max_stocks]):
-        quote = data_provider.get_realtime_quote(code) or {}
+        quote = market_data.get_realtime_quote(code) or {}
         amount = _safe_float(quote.get("amount") or quote.get("turnover") or quote.get("成交额"))
         if amount and amount < MIN_AMOUNT:
             continue
         if structure_period in MINUTE_STRUCTURE_PERIODS:
-            df = data_provider.get_kline_minute(code, period=structure_period)
+            if provider is not None:
+                df = provider.get_minute_bars(code, period=structure_period)
+            else:
+                df = data_provider.get_kline_minute(code, period=structure_period)
         else:
-            df = data_provider.get_kline_daily(code, start_date="")
+            if provider is not None:
+                df = provider.get_daily_bars(code, start_date="")
+            else:
+                df = data_provider.get_kline_daily(code, start_date="")
         if df is None or df.empty:
             continue
         signal = analyze_attack_third_buy_signal(df, theme_info, now=datetime.now(), structure_period=structure_period)

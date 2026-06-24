@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -22,7 +23,21 @@ class DuckDBStore:
         read_only = os.getenv("ASHARE_DUCKDB_READ_ONLY", "0") == "1"
         if read_only:
             return duckdb.connect(str(self.db_path), read_only=True)
-        return duckdb.connect(str(self.db_path))
+
+        last_error: duckdb.IOException | None = None
+        for attempt in range(6):
+            try:
+                return duckdb.connect(str(self.db_path))
+            except duckdb.IOException as exc:
+                last_error = exc
+                message = str(exc)
+                if "Could not set lock" not in message and "Conflicting lock is held" not in message:
+                    raise
+                if attempt == 5:
+                    break
+                time.sleep(0.5 * (attempt + 1))
+        assert last_error is not None
+        raise last_error
 
     def _bootstrap(self):
         if os.getenv("ASHARE_DUCKDB_READ_ONLY", "0") == "1":
@@ -39,6 +54,26 @@ class DuckDBStore:
                     status TEXT,
                     updated_at TIMESTAMP,
                     source TEXT
+                )
+                """
+            )
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS realtime_quote_snapshot (
+                    code TEXT PRIMARY KEY,
+                    name TEXT,
+                    price DOUBLE,
+                    change_pct DOUBLE,
+                    volume DOUBLE,
+                    amount DOUBLE,
+                    turnover DOUBLE,
+                    turnover_rate DOUBLE,
+                    market_cap DOUBLE,
+                    circulating_market_cap DOUBLE,
+                    source TEXT,
+                    raw_json TEXT,
+                    trade_dt TIMESTAMP,
+                    updated_at TIMESTAMP
                 )
                 """
             )
@@ -167,6 +202,45 @@ class DuckDBStore:
                 )
                 """
             )
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS kaipanla_sector_strength (
+                    trade_date DATE,
+                    sector_code TEXT,
+                    sector_name TEXT,
+                    limit_up_count INTEGER,
+                    max_consecutive_days INTEGER,
+                    stock_count INTEGER,
+                    turnover DOUBLE,
+                    main_net_inflow DOUBLE,
+                    main_buy DOUBLE,
+                    main_sell DOUBLE,
+                    seal_amount DOUBLE,
+                    strength_score DOUBLE,
+                    capital_score DOUBLE,
+                    source TEXT,
+                    raw_json TEXT,
+                    updated_at TIMESTAMP,
+                    PRIMARY KEY (trade_date, sector_code)
+                )
+                """
+            )
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS stock_sector_membership (
+                    code TEXT,
+                    name TEXT,
+                    sector_code TEXT,
+                    sector_name TEXT,
+                    sector_type TEXT,
+                    source TEXT,
+                    is_current BOOLEAN,
+                    raw_json TEXT,
+                    updated_at TIMESTAMP,
+                    PRIMARY KEY (code, sector_code, sector_type, source)
+                )
+                """
+            )
 
     def upsert_stock_basic(self, df: pd.DataFrame) -> None:
         if df is None or df.empty:
@@ -183,6 +257,67 @@ class DuckDBStore:
                 FROM stock_basic_df
                 """
             )
+
+    def upsert_realtime_quote_snapshot(self, df: pd.DataFrame) -> None:
+        if df is None or df.empty:
+            return
+        frame = df.copy()
+        rename_map = {
+            "latest_price": "price",
+            "成交额": "amount",
+            "成交量": "volume",
+            "总市值": "market_cap",
+            "流通市值": "circulating_market_cap",
+        }
+        frame = frame.rename(columns=rename_map)
+        for col, default in {
+            "name": "",
+            "price": None,
+            "change_pct": None,
+            "volume": None,
+            "amount": None,
+            "turnover": None,
+            "turnover_rate": None,
+            "market_cap": None,
+            "circulating_market_cap": None,
+            "source": "unknown",
+            "raw_json": None,
+            "trade_dt": datetime.now(),
+        }.items():
+            if col not in frame.columns:
+                frame[col] = default
+        frame["code"] = frame["code"].astype(str).str.strip().str.zfill(6)
+        if "updated_at" not in frame.columns:
+            frame["updated_at"] = datetime.now()
+        with self._connect() as con:
+            con.register("quote_snapshot_df", frame)
+            con.execute(
+                """
+                INSERT OR REPLACE INTO realtime_quote_snapshot
+                SELECT code, name, price, change_pct, volume, amount, turnover,
+                       turnover_rate, market_cap, circulating_market_cap, source,
+                       raw_json, trade_dt, updated_at
+                FROM quote_snapshot_df
+                """
+            )
+
+    def get_realtime_quote_snapshot(self, code: str) -> pd.DataFrame:
+        normalized_code = str(code or "").strip()
+        if normalized_code.endswith(".0"):
+            normalized_code = normalized_code[:-2]
+        if normalized_code.isdigit() and len(normalized_code) <= 6:
+            normalized_code = normalized_code.zfill(6)
+        with self._connect() as con:
+            return con.execute(
+                """
+                SELECT *
+                FROM realtime_quote_snapshot
+                WHERE code = ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                [normalized_code],
+            ).df()
 
     def upsert_daily_kline(self, df: pd.DataFrame) -> None:
         if df is None or df.empty:
@@ -394,6 +529,99 @@ class DuckDBStore:
                 FROM kpl_ladder_df
                 """
             )
+
+    def upsert_kaipanla_sector_strength(self, df: pd.DataFrame) -> None:
+        if df is None or df.empty:
+            return
+        frame = df.copy()
+        if "updated_at" not in frame.columns:
+            frame["updated_at"] = datetime.now()
+        if "raw_json" not in frame.columns:
+            frame["raw_json"] = None
+        with self._connect() as con:
+            con.register("kpl_sector_strength_df", frame)
+            con.execute(
+                """
+                INSERT OR REPLACE INTO kaipanla_sector_strength
+                SELECT trade_date, sector_code, sector_name, limit_up_count,
+                       max_consecutive_days, stock_count, turnover, main_net_inflow,
+                       main_buy, main_sell, seal_amount, strength_score, capital_score,
+                       source, raw_json, updated_at
+                FROM kpl_sector_strength_df
+                """
+            )
+
+    def get_kaipanla_sector_strength(self, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
+        clauses = []
+        params = []
+        if start_date:
+            clauses.append("trade_date >= ?")
+            params.append(self._normalize_date(start_date))
+        if end_date:
+            clauses.append("trade_date <= ?")
+            params.append(self._normalize_date(end_date))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as con:
+            return con.execute(
+                f"SELECT * FROM kaipanla_sector_strength {where} ORDER BY trade_date DESC, strength_score DESC, capital_score DESC",
+                params,
+            ).df()
+
+    def upsert_stock_sector_membership(self, df: pd.DataFrame) -> None:
+        if df is None or df.empty:
+            return
+        frame = df.copy()
+        for col, default in {
+            "name": "",
+            "sector_code": "",
+            "sector_name": "",
+            "sector_type": "unknown",
+            "source": "unknown",
+            "is_current": True,
+            "raw_json": None,
+        }.items():
+            if col not in frame.columns:
+                frame[col] = default
+        frame["code"] = frame["code"].astype(str).str.strip().str.zfill(6)
+        frame = frame[(frame["code"] != "") & (frame["sector_name"].astype(str).str.strip() != "")]
+        if frame.empty:
+            return
+        if "updated_at" not in frame.columns:
+            frame["updated_at"] = datetime.now()
+        with self._connect() as con:
+            con.register("stock_sector_df", frame)
+            con.execute(
+                """
+                INSERT OR REPLACE INTO stock_sector_membership
+                SELECT code, name, sector_code, sector_name, sector_type, source,
+                       is_current, raw_json, updated_at
+                FROM stock_sector_df
+                """
+            )
+
+    def get_stock_sector_membership(self, code: str, *, current_only: bool = True) -> pd.DataFrame:
+        normalized_code = str(code or "").strip()
+        if normalized_code.endswith(".0"):
+            normalized_code = normalized_code[:-2]
+        if normalized_code.isdigit() and len(normalized_code) <= 6:
+            normalized_code = normalized_code.zfill(6)
+        clauses = ["code = ?"]
+        params = [normalized_code]
+        if current_only:
+            clauses.append("is_current = true")
+        with self._connect() as con:
+            return con.execute(
+                f"""
+                SELECT *
+                FROM stock_sector_membership
+                WHERE {' AND '.join(clauses)}
+                ORDER BY
+                    CASE sector_type WHEN 'industry' THEN 0 WHEN 'concept' THEN 1 ELSE 2 END,
+                    source,
+                    sector_name
+                """,
+                params,
+            ).df()
 
     def get_kaipanla_market_sentiment(self, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
         clauses = []

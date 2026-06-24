@@ -6,6 +6,7 @@ from typing import Optional
 import pandas as pd
 
 from app.core.providers.akshare_provider import AkshareProvider
+from app.core.providers.baostock_provider import BaostockProvider
 from app.core.providers.base import BaseMarketDataProvider
 from app.core.providers.mootdx_provider import MootdxProvider
 from app.core.providers.tencent_provider import TencentProvider
@@ -21,6 +22,7 @@ class CompositeProvider(BaseMarketDataProvider):
     def __init__(self):
         self.store = DuckDBStore()
         self.mootdx = MootdxProvider()
+        self.baostock = BaostockProvider()
         self.tencent = TencentProvider()
         self.akshare = AkshareProvider()
 
@@ -98,7 +100,14 @@ class CompositeProvider(BaseMarketDataProvider):
         if df is not None and not df.empty:
             return df
 
-        df = self.mootdx.get_minute_bars(code=code, period=period, start_date=start_date, end_date=end_date)
+        df = self.baostock.get_minute_bars(code=code, period=period, start_date=start_date, end_date=end_date)
+        source = "baostock"
+        if df is None or df.empty:
+            df = self.mootdx.get_minute_bars(code=code, period=period, start_date=start_date, end_date=end_date)
+            source = "mootdx"
+        if df is None or df.empty:
+            df = self.akshare.get_minute_bars(code=code, period=period, start_date=start_date, end_date=end_date)
+            source = "akshare_hist_min_em"
         if df is None or df.empty:
             return df
 
@@ -106,7 +115,7 @@ class CompositeProvider(BaseMarketDataProvider):
         if "code" not in frame.columns:
             frame["code"] = code
         frame["period"] = str(period)
-        frame["source"] = frame.get("source", "mootdx")
+        frame["source"] = frame.get("source", source)
         self.store.upsert_minute_kline(frame)
         return frame
 

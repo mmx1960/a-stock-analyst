@@ -1,0 +1,93 @@
+{
+  "pool_id": "semiconductor_materials",
+  "pool_name": "半导体材料",
+  "source": "用户提供图片：半导体卡脖子12大关键材料",
+  "description": "图片中出现的半导体材料相关股票股池；A股本地 stock_basic 可匹配的股票进入 stocks，未匹配或疑似非A股/退市/名称异常的保留在 unmatched。",
+  "stocks": [
+    {"code": "002428", "name": "云南锗业", "material": "磷化铟", "rank": "TOP1"},
+    {"code": "600206", "name": "有研新材", "material": "磷化铟", "rank": "TOP2"},
+    {"code": "300489", "name": "光智科技", "material": "磷化铟", "rank": "TOP3"},
+    {"code": "688498", "name": "源杰科技", "material": "磷化铟", "rank": "related"},
+    {"code": "002023", "name": "海特高新", "material": "磷化铟", "rank": "related"},
+    {"code": "600703", "name": "三安光电", "material": "磷化铟", "rank": "related"},
+
+    {"code": "603650", "name": "彤程新材", "material": "光刻胶", "rank": "TOP1"},
+    {"code": "300346", "name": "南大光电", "material": "光刻胶", "rank": "TOP2"},
+    {"code": "300236", "name": "上海新阳", "material": "光刻胶", "rank": "TOP3"},
+    {"code": "300655", "name": "晶瑞电材", "material": "光刻胶", "rank": "related"},
+    {"code": "603306", "name": "华懋科技", "material": "光刻胶", "rank": "related"},
+    {"code": "300576", "name": "容大感光", "material": "光刻胶", "rank": "related"},
+
+    {"code": "688234", "name": "天岳先进", "material": "碳化硅", "rank": "TOP1"},
+    {"code": "002617", "name": "露笑科技", "material": "碳化硅", "rank": "TOP2"},
+    {"code": "600703", "name": "三安光电", "material": "碳化硅", "rank": "TOP3"},
+    {"code": "600460", "name": "士兰微", "material": "碳化硅", "rank": "related"},
+    {"code": "300316", "name": "晶盛机电", "material": "碳化硅", "rank": "related"},
+    {"code": "603595", "name": "ST东尼", "material": "碳化硅", "rank": "related", "source_name": "东尼电子", "note": "本地 stock_basic 当前名称为 ST东尼"},
+
+    {"code": "301217", "name": "铜冠铜箔", "material": "铜箔", "rank": "TOP1"},
+    {"code": "688388", "name": "嘉元科技", "material": "铜箔", "rank": "TOP2"},
+    {"code": "301150", "name": "中一科技", "material": "铜箔", "rank": "TOP3"},
+    {"code": "301511", "name": "德福科技", "material": "铜箔", "rank": "related"},
+    {"code": "600110", "name": "诺德股份", "material": "铜箔", "rank": "related"},
+
+    {"code": "300726", "name": "宏达电子", "material": "铝电容", "rank": "TOP1"},
+    {"code": "603678", "name": "火炬电子", "material": "铝电容", "rank": "TOP2"},
+    {"code": "000733", "name": "振华科技", "material": "铝电容", "rank": "TOP3"},
+    {"code": "603267", "name": "XD鸿远电", "material": "铝电容", "rank": "related", "source_name": "鸿远电子", "note": "本地 stock_basic 当前名称为 XD鸿远电"},
+    {"code": "002138", "name": "顺络电子", "material": "铝电容", "rank": "related"},
+
+    {"code": "002916", "name": "深南电路", "material": "ABF载板", "rank": "TOP1"},
+    {"code": "600183", "name": "生益科技", "material": "ABF载板", "rank": "TOP2"},
+    {"code": "002938", "name": "鹏鼎控股", "material": "ABF载板", "rank": "TOP3"},
+    {"code": "002436", "name": "兴森科技", "material": "ABF载板", "rank": "related"},
+    {"code": "300476", "name": "胜宏科技", "material": "ABF载板", "rank": "related"},
+    {"code": "603228", "name": "景旺电子", "material": "ABF载板", "rank": "related"},
+
+    {"code": "002549", "name": "凯美特气", "material": "高纯氮气", "rank": "TOP1"},
+    {"code": "002430", "name": "杭氧股份", "material": "高纯氮气", "rank": "TOP2"},
+    {"code": "688268", "name": "华特气体", "material": "高纯氮气", "rank": "TOP3"},
+    {"code": "688106", "name": "金宏气体", "material": "高纯氮气", "rank": "related"},
+    {"code": "688146", "name": "中船特气", "material": "高纯氮气", "rank": "related"},
+    {"code": "300540", "name": "蜀道装备", "material": "高纯氮气", "rank": "related"},
+
+    {"code": "000636", "name": "风华高科", "material": "MLCC电容", "rank": "TOP1"},
+    {"code": "300408", "name": "三环集团", "material": "MLCC电容", "rank": "TOP2"},
+    {"code": "002859", "name": "洁美科技", "material": "MLCC电容", "rank": "TOP3"},
+    {"code": "603267", "name": "XD鸿远电", "material": "MLCC电容", "rank": "related", "source_name": "鸿远电子", "note": "本地 stock_basic 当前名称为 XD鸿远电"},
+    {"code": "002138", "name": "顺络电子", "material": "MLCC电容", "rank": "related"},
+    {"code": "300285", "name": "国瓷材料", "material": "MLCC电容", "rank": "related"},
+
+    {"code": "601958", "name": "金钼股份", "material": "半导体靶材", "rank": "TOP1"},
+    {"code": "603993", "name": "洛阳钼业", "material": "半导体靶材", "rank": "TOP2"},
+    {"code": "300263", "name": "隆华科技", "material": "半导体靶材", "rank": "TOP3"},
+    {"code": "300706", "name": "阿石创", "material": "半导体靶材", "rank": "related"},
+    {"code": "300666", "name": "江丰电子", "material": "半导体靶材", "rank": "related"},
+
+    {"code": "600176", "name": "中国巨石", "material": "电子布", "rank": "TOP1", "source_name": "中巨石", "note": "图片疑似简称/OCR为中巨石，本地匹配中国巨石"},
+    {"code": "002080", "name": "中材科技", "material": "电子布", "rank": "TOP3"},
+    {"code": "301526", "name": "国际复材", "material": "电子布", "rank": "related"},
+    {"code": "300196", "name": "长海股份", "material": "电子布", "rank": "related"},
+    {"code": "605006", "name": "山东玻纤", "material": "电子布", "rank": "related"},
+
+    {"code": "600183", "name": "生益科技", "material": "高端PCB载板", "rank": "TOP1"},
+    {"code": "603186", "name": "华正新材", "material": "高端PCB载板", "rank": "TOP2"},
+    {"code": "002463", "name": "沪电股份", "material": "高端PCB载板", "rank": "TOP3"},
+    {"code": "002916", "name": "深南电路", "material": "高端PCB载板", "rank": "related"},
+    {"code": "300476", "name": "胜宏科技", "material": "高端PCB载板", "rank": "related"},
+    {"code": "002384", "name": "东山精密", "material": "高端PCB载板", "rank": "related"},
+
+    {"code": "603078", "name": "江化微", "material": "电子级硫酸", "rank": "TOP1"},
+    {"code": "002407", "name": "多氟多", "material": "电子级硫酸", "rank": "TOP2"},
+    {"code": "300655", "name": "晶瑞电材", "material": "电子级硫酸", "rank": "TOP3"},
+    {"code": "300236", "name": "上海新阳", "material": "电子级硫酸", "rank": "related"},
+    {"code": "688549", "name": "中巨芯", "material": "电子级硫酸", "rank": "related"},
+    {"code": "603931", "name": "格林达", "material": "电子级硫酸", "rank": "related"}
+  ],
+  "unmatched": [
+    {"source_name": "超华科技", "material": "铜箔", "rank": "related", "reason": "本地 stock_basic 未匹配，疑似退市/名称变化"},
+    {"source_name": "东方铝业", "material": "铝电容", "rank": "related", "reason": "本地 stock_basic 未匹配，疑似非A股或图片/OCR异常"},
+    {"source_name": "联美新材", "material": "半导体靶材", "rank": "related", "reason": "本地 stock_basic 未匹配，疑似名称异常"},
+    {"source_name": "富乔科技", "material": "电子布", "rank": "TOP2", "reason": "本地 stock_basic 未匹配，疑似非A股"}
+  ]
+}

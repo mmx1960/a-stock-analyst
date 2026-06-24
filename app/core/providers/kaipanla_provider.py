@@ -4,7 +4,7 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import pandas as pd
@@ -16,6 +16,10 @@ from app.core.storage.duckdb_store import DuckDBStore
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
+
+
+class KaipanlaDateMismatchError(RuntimeError):
+    """Raised when Kaipanla returns a different trade date than requested."""
 
 
 class KaipanlaProvider:
@@ -36,6 +40,10 @@ class KaipanlaProvider:
         self.store = store or DuckDBStore()
         self._last_request_at = 0.0
         self._session = requests.Session()
+        # 开盘啦接口经常被本机 HTTP(S)_PROXY / macOS 系统代理污染，
+        # requests 即使传 proxies={} 也可能继续读取环境代理。
+        # 这里必须关闭 trust_env，保证历史补库直连 longhuvip。
+        self._session.trust_env = False
 
     def _headers(self, host: str) -> dict[str, str]:
         return {
@@ -156,10 +164,15 @@ class KaipanlaProvider:
         )
         if not result or result.get("errcode") != "0":
             logger.warning("kaipanla limit-up sectors failed: %s", result)
-            return {"summary": {}, "sectors": [], "raw": result or {}}
+            return {"summary": {"trade_date": trade_date}, "sectors": [], "raw": result or {}}
+        response_date = self._normalize_date(result.get("date") or result.get("Date") or result.get("Day") or trade_date)
+        if response_date != trade_date:
+            raise KaipanlaDateMismatchError(
+                f"kaipanla limit-up sectors date mismatch: requested {trade_date}, got {response_date}"
+            )
         nums = result.get("nums", {}) or {}
         summary = {
-            "trade_date": self._normalize_date(result.get("date", trade_date)),
+            "trade_date": response_date,
             "up_count": self._safe_int(nums.get("SZJS")),
             "down_count": self._safe_int(nums.get("XDJS")),
             "limit_up_count": self._safe_int(nums.get("ZT")),
@@ -219,6 +232,324 @@ class KaipanlaProvider:
         except (TypeError, ValueError):
             pass
         return str(raw)
+
+    def get_historical_board_stocks(self, trade_date: str, *, max_board_type: int = 5) -> list[dict[str, Any]]:
+        trade_date = self._normalize_date(trade_date)
+        rows: list[dict[str, Any]] = []
+        for board_type in range(1, max_board_type + 1):
+            result = self._post(
+                self.HISTORY_URL,
+                {
+                    "Order": "0",
+                    "a": "DailyLimitPerformance",
+                    "st": "2000",
+                    "c": "HisHomeDingPan",
+                    "Index": "0",
+                    "PidType": str(board_type),
+                    "Type": "4",
+                    "Day": trade_date,
+                },
+            )
+            if not result or result.get("errcode") != "0":
+                logger.warning("kaipanla historical board stocks failed %s board=%s: %s", trade_date, board_type, result)
+                continue
+            info = result.get("info") or []
+            stock_list = info[0] if info and isinstance(info[0], list) else []
+            for stock in stock_list:
+                parsed = self._parse_historical_board_stock(stock, board_type=board_type, trade_date=trade_date)
+                if parsed:
+                    rows.append(parsed)
+        return rows
+
+    def _parse_historical_board_stock(self, stock: list[Any], *, board_type: int, trade_date: str) -> dict[str, Any] | None:
+        if not isinstance(stock, list) or len(stock) < 23:
+            return None
+        return {
+            "trade_date": trade_date,
+            "code": str(stock[0]),
+            "name": str(stock[1]),
+            "board_type": int(board_type),
+            "timestamp": stock[4] if len(stock) > 4 else None,
+            "reason": str(stock[5] or "") if len(stock) > 5 else "",
+            "turnover": self._safe_float(stock[6] if len(stock) > 6 else 0),
+            "circulating_market_cap": self._safe_float(stock[7] if len(stock) > 7 else 0),
+            "main_buy": self._safe_float(stock[8] if len(stock) > 8 else 0),
+            "main_sell": self._safe_float(stock[9] if len(stock) > 9 else 0),
+            "main_net_inflow": self._safe_float(stock[10] if len(stock) > 10 else 0),
+            "seal_amount": self._safe_float(stock[11] if len(stock) > 11 else 0),
+            "concept_tags": str(stock[12] or "") if len(stock) > 12 else "",
+            "total_market_cap": self._safe_float(stock[13] if len(stock) > 13 else 0),
+            "amplitude": self._safe_float(stock[14] if len(stock) > 14 else 0),
+            "consecutive_days": self._safe_int(stock[15] if len(stock) > 15 else board_type, board_type),
+            "tips": str(stock[18] or "") if len(stock) > 18 else "",
+            "sector_code": str(stock[19] or "") if len(stock) > 19 else "",
+            "sector_limit_up_count": self._safe_int(stock[20] if len(stock) > 20 else 0),
+            "limit_up_price": self._safe_float(stock[21] if len(stock) > 21 else 0),
+            "limit_up_pct": self._safe_float(stock[22] if len(stock) > 22 else 0),
+            "raw": stock,
+        }
+
+    def normalize_sector_strength_frame(self, trade_date: str, stocks: list[dict[str, Any]]) -> pd.DataFrame:
+        trade_date = self._normalize_date(trade_date)
+        if not stocks:
+            return pd.DataFrame()
+        grouped: dict[str, dict[str, Any]] = {}
+        for stock in stocks:
+            sector_code = str(stock.get("sector_code") or "")
+            if not sector_code:
+                continue
+            sector_name = str(stock.get("reason") or stock.get("concept_tags") or sector_code).split("、")[0].split(",")[0].strip() or sector_code
+            row = grouped.setdefault(
+                sector_code,
+                {
+                    "trade_date": trade_date,
+                    "sector_code": sector_code,
+                    "sector_name": sector_name,
+                    "limit_up_count": 0,
+                    "max_consecutive_days": 0,
+                    "stock_count": 0,
+                    "turnover": 0.0,
+                    "main_net_inflow": 0.0,
+                    "main_buy": 0.0,
+                    "main_sell": 0.0,
+                    "seal_amount": 0.0,
+                    "source": "kaipanla_daily_limit_performance",
+                    "raw_json": "[]",
+                    "_raw": [],
+                },
+            )
+            row["limit_up_count"] += 1
+            row["stock_count"] += 1
+            row["max_consecutive_days"] = max(int(row["max_consecutive_days"]), self._safe_int(stock.get("consecutive_days")))
+            row["turnover"] += self._safe_float(stock.get("turnover"))
+            row["main_net_inflow"] += self._safe_float(stock.get("main_net_inflow"))
+            row["main_buy"] += self._safe_float(stock.get("main_buy"))
+            row["main_sell"] += self._safe_float(stock.get("main_sell"))
+            row["seal_amount"] += self._safe_float(stock.get("seal_amount"))
+            row["_raw"].append(stock)
+
+        rows = []
+        for row in grouped.values():
+            strength_score = min(100.0, row["limit_up_count"] * 8.0 + row["max_consecutive_days"] * 12.0 + min(20.0, row["seal_amount"] / 1e8 * 4.0))
+            capital_score = max(0.0, min(100.0, row["main_net_inflow"] / 1e8 * 8.0 + row["turnover"] / 1e9 * 3.0 + row["seal_amount"] / 1e8 * 3.0))
+            row["strength_score"] = round(strength_score, 2)
+            row["capital_score"] = round(capital_score, 2)
+            row["raw_json"] = self._json(row.pop("_raw"))
+            rows.append(row)
+        frame = pd.DataFrame(rows)
+        if not frame.empty:
+            frame["trade_date"] = pd.to_datetime(frame["trade_date"]).dt.date
+        return frame
+
+    def _recent_weekday_window(self, end_date: str, lookback_days: int) -> list[str]:
+        end = datetime.strptime(self._normalize_date(end_date), "%Y-%m-%d")
+        dates: list[str] = []
+        current = end
+        while len(dates) < max(1, int(lookback_days)):
+            if current.weekday() < 5:
+                dates.append(current.strftime("%Y-%m-%d"))
+            current -= timedelta(days=1)
+        return list(reversed(dates))
+
+    def get_plate_interval_strength(
+        self,
+        sector_code: str,
+        *,
+        end_date: str,
+        lookback_days: int = 5,
+        sector_name: str = "",
+    ) -> dict[str, Any] | None:
+        """Fetch 开盘啦“板块/尾盘抢筹/区间强度” by summing daily QJ values.
+
+        The App table's multi-day range (e.g. 2026/06/12-2026/06/18) matches
+        the sum of per-trading-day ``GetPlate_Info_QJ`` values for each plate:
+        ``List[1]`` strength, ``List[3]`` net amount, and ``List[2]`` turnover.
+        """
+        sector_code = str(sector_code or "").strip()
+        if not sector_code:
+            return None
+        trade_dates = self._recent_weekday_window(end_date, lookback_days)
+        daily_rows: list[dict[str, Any]] = []
+        total_strength = 0.0
+        total_turnover = 0.0
+        total_net_amount = 0.0
+        last_rank: int | None = None
+        actual_dates: list[str] = []
+        for trade_date in trade_dates:
+            result = self._post(
+                self.HISTORY_URL,
+                {
+                    "a": "GetPlate_Info_QJ",
+                    "c": "ZhiShuRanking",
+                    "Date": trade_date,
+                    "PlateID": sector_code,
+                },
+            )
+            if not result or result.get("errcode") != "0":
+                logger.warning("kaipanla plate interval strength failed %s %s: %s", sector_code, trade_date, result)
+                continue
+            values = result.get("List") or []
+            if not isinstance(values, list) or len(values) < 4:
+                continue
+            actual_date = self._normalize_date(result.get("Date") or trade_date)
+            rank = self._safe_int(values[0], 0)
+            strength = self._safe_float(values[1])
+            turnover = self._safe_float(values[2])
+            net_amount = self._safe_float(values[3])
+            total_strength += max(0.0, strength)
+            total_turnover += turnover
+            total_net_amount += net_amount
+            last_rank = rank or last_rank
+            actual_dates.append(actual_date)
+            daily_rows.append(
+                {
+                    "trade_date": actual_date,
+                    "rank": rank,
+                    "strength": strength,
+                    "turnover": turnover,
+                    "net_amount": net_amount,
+                    "raw": result,
+                }
+            )
+        if not daily_rows:
+            return None
+        return {
+            "trade_date": self._normalize_date(end_date),
+            "sector_code": sector_code,
+            "sector_name": sector_name or sector_code,
+            "limit_up_count": 0,
+            "max_consecutive_days": 0,
+            "stock_count": len(daily_rows),
+            "turnover": total_turnover,
+            "main_net_inflow": total_net_amount,
+            "main_buy": 0.0,
+            "main_sell": 0.0,
+            "seal_amount": 0.0,
+            "strength_score": round(total_strength, 2),
+            "capital_score": round(total_net_amount / 1e8, 2),
+            "source": "kaipanla_plate_info_qj_interval",
+            "raw_json": self._json(
+                {
+                    "lookback_days": lookback_days,
+                    "actual_dates": actual_dates,
+                    "last_rank": last_rank,
+                    "daily_rows": daily_rows,
+                }
+            ),
+        }
+
+    def sync_sector_strength(
+        self,
+        trade_date: str,
+        *,
+        sector_codes: Optional[list[str]] = None,
+        sector_names: Optional[dict[str, str]] = None,
+        lookback_days: int = 5,
+    ) -> pd.DataFrame:
+        """Sync App “区间强度/区间净额/区间成交” rows into DuckDB."""
+        sector_codes = [str(code).strip() for code in (sector_codes or []) if str(code).strip()]
+        sector_names = sector_names or {}
+        rows = []
+        for code in sector_codes:
+            row = self.get_plate_interval_strength(
+                code,
+                end_date=trade_date,
+                lookback_days=lookback_days,
+                sector_name=sector_names.get(code, ""),
+            )
+            if row:
+                rows.append(row)
+        frame = pd.DataFrame(rows)
+        if not frame.empty:
+            frame["trade_date"] = pd.to_datetime(frame["trade_date"]).dt.date
+            self.store.upsert_kaipanla_sector_strength(frame)
+        return frame
+
+    def get_sector_all_stocks(
+        self,
+        plate_id: str,
+        *,
+        trade_date: Optional[str] = None,
+        order: int = 1,
+        page_size: int = 30,
+        max_pages: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Fetch 开盘啦板块完整股票池 via ``ZhiShuStockList_W8`` pagination."""
+        normalized_date = self._normalize_date(trade_date)
+        plate_id = str(plate_id or "").strip()
+        if not plate_id:
+            return {"trade_date": normalized_date, "plate_id": "", "stocks": [], "total_count": 0, "pages_fetched": 0}
+
+        all_stocks: list[list[Any]] = []
+        seen_codes: set[str] = set()
+        core_stock_codes: list[str] = []
+        core_count = 0
+        total_count_from_api = 0
+        page = 0
+        page_size = max(1, int(page_size))
+
+        while True:
+            if max_pages is not None and page >= max_pages:
+                break
+            index = page * page_size
+            result = self._post(
+                self.HISTORY_URL,
+                {
+                    "Order": str(order),
+                    "TSZB": "0",
+                    "a": "ZhiShuStockList_W8",
+                    "st": str(page_size),
+                    "c": "ZhiShuRanking",
+                    "old": "1",
+                    "IsZZ": "0",
+                    "Token": "0daffc...ff02",
+                    "Index": str(index),
+                    "Date": normalized_date,
+                    "Type": "6",
+                    "IsKZZType": "0",
+                    "UserID": "4315515",
+                    "PlateID": plate_id,
+                    "TSZB_Type": "0",
+                    "filterType": "0",
+                },
+            )
+            if not result or result.get("errcode") != "0":
+                logger.warning("kaipanla sector stocks failed plate=%s date=%s index=%s: %s", plate_id, normalized_date, index, result)
+                break
+
+            stocks = result.get("list") or []
+            count = self._safe_int(result.get("Count"), 0)
+            if page == 0:
+                core_stock_codes = [str(code) for code in (result.get("Stocks") or [])]
+                core_count = count
+            elif page == 1:
+                total_count_from_api = count
+
+            if not stocks:
+                break
+            for stock in stocks:
+                if not isinstance(stock, list) or not stock:
+                    continue
+                code = str(stock[0] or "").strip()
+                if not code or code in seen_codes:
+                    continue
+                seen_codes.add(code)
+                all_stocks.append(stock)
+            page += 1
+            if len(stocks) < page_size:
+                break
+
+        return {
+            "trade_date": normalized_date,
+            "plate_id": plate_id,
+            "stocks": all_stocks,
+            "stock_codes": sorted(seen_codes),
+            "core_stock_codes": core_stock_codes,
+            "core_count": core_count,
+            "total_count": len(all_stocks),
+            "total_count_from_api": total_count_from_api or core_count,
+            "pages_fetched": page,
+        }
 
     def get_market_limit_up_ladder(self, trade_date: Optional[str] = None) -> dict[str, Any]:
         is_realtime = trade_date is None
